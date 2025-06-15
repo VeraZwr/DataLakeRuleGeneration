@@ -1,0 +1,19 @@
+1. read file and generate data profile
+    column_features: extract features
+    reds.py: read the file and save the profile in results folder as .dictionary
+2. rule generation
+    generate_rules_from_profile.py
+3. cross-table rule matching and sharing
+    semantic similarity
+    cluster the columns by profile (distribution characteristic similarity of columns (mean, proportion of unique values, rate of null values..)
+4. error detection pipeline
+    rule matching
+    error scoring
+    error clustering
+which scenario i can share the rules ->trees
+run matelda
+
+######reds#####
+Content Features
+Structure Features
+Dirtiness Features
