@@ -51,7 +51,6 @@ def generate_rules_from_profile(profile_path):
 
 # Sample usage
 if __name__ == "__main__":
-    # Replace this path with your actual profile file
     profile_path = "/Users/veraz/PycharmProjects/DataLakeRuleGeneration/results/beers/dataset_profile.dictionary"
 
     if not os.path.exists(profile_path):
