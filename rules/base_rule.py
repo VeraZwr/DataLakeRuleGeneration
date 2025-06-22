@@ -1,6 +1,7 @@
 class BaseRule(object):
-    def __init__(self, rule):
-        self.rule = rule
+    name = "base_rule"
+    description = "Base rule class"
+    used_features = []
 
-    def execute(self, data):
-        raise NotImplementedError
+    def applies(self, col_profile: dict) -> bool:
+        raise NotImplementedError("Subclasses must implement applies()")
