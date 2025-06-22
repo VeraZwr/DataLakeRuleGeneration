@@ -11,13 +11,6 @@ import numpy
 import nltk
 import pandas as pd
 from collections import Counter
-import sklearn.neighbors
-import sklearn.naive_bayes
-import sklearn.tree
-import sklearn.svm
-import sklearn.neural_network
-import sklearn.kernel_ridge
-import sklearn.ensemble
 from dataset import Dataset
 from column_features.column_name_features import ColumnNameFeature, COLUMN_CATEGORY_PROTOTYPES
 from column_features.data_type_features import  DataTypeFeatures
