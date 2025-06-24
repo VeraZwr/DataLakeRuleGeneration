@@ -17,3 +17,25 @@ run matelda
 Content Features
 Structure Features
 Dirtiness Features
+
+##### System Architecture #####
+main.py
+config.py
+rules/
+    __init__.py
+    base_rule.py
+    dictionary_rule.py
+    custom_rules.py
+    loader.py
+    evaluation.py # applying rules, evaluating clusters, and get error detect results
+profiling/
+    __init__.py
+    profiler.py
+util/
+    __init__.py
+    file_io.py
+    feature_utils.py
+    rule_utils.py
+    clustering.py
+    viz.py
+    result_file_reader.py
