@@ -10,10 +10,14 @@ import pickle
 import numpy
 import nltk
 import pandas as pd
+from profiling.dBoost import dboost #detect anomaly rows
 from collections import Counter
 from dataset import Dataset
 from column_features.column_name_features import ColumnNameFeature, COLUMN_CATEGORY_PROTOTYPES
 from column_features.data_type_features import  DataTypeFeatures
+from nltk.tokenize import word_tokenize
+
+
 ########################################
 class REDS:
     """
@@ -21,8 +25,10 @@ class REDS:
     """
 
     def __init__(self, datasets_folder="datasets/Quintet", results_folder="results"):
-        self.DATASETS_FOLDER = datasets_folder
-        self.RESULTS_FOLDER = results_folder
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.datasets_folder = datasets_folder
+        self.DATASETS_FOLDER = os.path.join(base_dir, datasets_folder)
+        self.RESULTS_FOLDER = os.path.join(base_dir, results_folder)
         self.DATASETS = {}
         self.KEYWORDS_COUNT_PER_COLUMN = 10
         self.colname_transformer = ColumnNameFeature(category_prototypes=COLUMN_CATEGORY_PROTOTYPES)
@@ -30,37 +36,61 @@ class REDS:
         self.dtype_transformer = DataTypeFeatures()
 
     def load_datasets(self):
-        self.DATASETS["hospital"] = {
-            "name": "hospital",
-            "path": os.path.join(self.DATASETS_FOLDER, "hospital", "dirty.csv"),
-            "clean_path": os.path.join(self.DATASETS_FOLDER, "hospital", "clean.csv"),
+        self.DATASETS["rayyan"] = {
+            "name": "rayyan",
+            "path": os.path.join(self.DATASETS_FOLDER, "rayyan", "dirty.csv"),
+            "clean_path": os.path.join(self.DATASETS_FOLDER, "rayyan", "clean.csv"),
             "functions": [...],
             "patterns": [...],
         }
 
 ###########################################################
+    @staticmethod
+    def generalize_pattern(value):
+        import string
+        if pd.isnull(value):
+            return "NULL"
+        pattern = []
+        for char in str(value):
+            if char.isdigit():
+                pattern.append("0")
+            elif char.isalpha():
+                pattern.append("A")
+            elif char in string.punctuation:
+                pattern.append(char)  # <-- special chars kept AS-IS
+            elif char.isspace():
+                pattern.append("_")
+            else:
+                pattern.append("?")
+        return "".join(pattern)
 
+    # -------------------------
     def column_profiler(self, column_data, column_name):
-        col = column_data.dropna()
+        col = column_data.dropna() #remove nan or none
         row_num = len(column_data)
         null_ratio = column_data.isnull().sum() / float(row_num)
         distinct_num = col.nunique()
         unique_ratio = distinct_num / float(row_num)
-
-        # Type Inference
+        max_digit_num = None
+        max_decimal_num = None
+        # Type Inference.cannot get dominant type in messy column, only say it is mixed
+        #TODO a method to get dominant type
         inferred_type = pd.api.types.infer_dtype(col, skipna=True)
         try:
             col_numeric = pd.to_numeric(col)
             numeric_min = col_numeric.min()
             numeric_max = col_numeric.max()
+            most_freq_value_ratio = col_numeric.value_counts(normalize=True).iloc[0]
             q1 = col_numeric.quantile(0.25)
             q2 = col_numeric.quantile(0.50)
             q3 = col_numeric.quantile(0.75)
-            most_freq_value_ratio = col_numeric.value_counts(normalize=True).iloc[0]
-
             # First digit distribution (Benford)
-            first_digits = col_numeric.astype(str).str.replace("-", "").str.replace(".", "").str[0]
+            first_digits = col_numeric.astype(str).str.replace(r"\D", "", regex=True).str[0]
             first_digit_dist = dict(Counter(first_digits))
+
+            col_numeric_to_string = col_numeric.dropna().astype(str)
+            max_digit_num = col_numeric_to_string.apply(lambda x: len(x.split(".")[0].replace("-",""))).max()
+            max_decimal_num = col_numeric_to_string.apply(lambda x: len(x.split(".")[1] if "." in x else 0)).max()
         except:
             numeric_min = numeric_max = q1 = q2 = q3 = most_freq_value_ratio = None
             first_digit_dist = {}
@@ -77,6 +107,25 @@ class REDS:
             equi_width_bins = pd.cut(col, bins=10).value_counts().to_dict()
             equi_depth_bins = pd.qcut(col, q=10, duplicates="drop").value_counts().to_dict()
 
+        #str len
+        col_str = col.astype(str)
+        value_len = col_str.apply(len)
+        min_len = value_len.min()
+        max_len = value_len.max()
+        avg_len = value_len.mean()
+
+        #patterns histogram
+        value_patterns = col_str.apply(self.generalize_pattern)
+        pattern_histogram = dict(Counter(value_patterns))
+        #DBMS types
+        # dBoost
+        #col_df = pd.DataFrame({column_name: col})
+        #rel = dboost.Relation.load_from_dataframe(col_df)
+        #model = dboost.DBoost()
+        #model.fit(rel)
+        #scores = model.detect_errors()
+        #anomaly_ratio = (scores > 0.5).sum() / float(len(scores))  # 0 is normal, 1 is error
+
         column_profile = {
             "column_name": column_name,
             "row_num": row_num,
@@ -84,7 +133,7 @@ class REDS:
             "distinct_num": distinct_num,
             "unique_ratio": unique_ratio,
             "histogram": histogram[:10],
-            "histogram_freq": histogram_freq[:10],
+            "histogram_freq": histogram_freq[:10],#remove later
             "equi_width_bins": equi_width_bins,
             "equi_depth_bins": equi_depth_bins,
             "numeric_min_value": numeric_min,
@@ -94,7 +143,14 @@ class REDS:
             "Q2": q2,
             "Q3": q3,
             "first_digit_distribution": first_digit_dist,
-            "basic_data_type": inferred_type
+            "basic_data_type": inferred_type,
+            "max_digit_num": max_digit_num,
+            "max_decimal_num": max_decimal_num,
+            "max_len": max_len,
+            "min_len": min_len,
+            "avg_len": avg_len,
+            "pattern_histogram": pattern_histogram
+            #"dboost_anomaly_ratio": anomaly_ratio
         }
         return column_profile
     ################################################
@@ -157,7 +213,7 @@ class REDS:
                         characters_punctuation_list[column] += 1
                     else:
                         characters_miscellaneous_list[column] += 1
-                for word in nltk.word_tokenize(cell):
+                for word in word_tokenize(cell):
                     if word not in words_dictionary:
                         words_dictionary[word] = 0
                         words_unique_list[column] += 1
@@ -271,6 +327,7 @@ if __name__ == "__main__":
         print ("===================== Dataset: {} =====================".format(dd["name"]))
         if not os.path.exists(os.path.join(application.RESULTS_FOLDER, dd["name"])):
             os.mkdir(os.path.join(application.RESULTS_FOLDER, dd["name"]))
+
         application.dataset_profiler(dd)
         # application.strategy_profiler(dd)
         # application.evaluation_profiler(dd)

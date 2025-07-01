@@ -39,3 +39,6 @@ util/
     clustering.py
     viz.py
     result_file_reader.py
+
+    1. run profiler.py to generate profile for each data sets
+
