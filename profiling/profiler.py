@@ -1,3 +1,4 @@
+import argparse
 import os
 import sys
 import re
@@ -10,14 +11,19 @@ import pickle
 import numpy
 import nltk
 import pandas as pd
-from profiling.dBoost import dboost #detect anomaly rows
 from collections import Counter
 from dataset import Dataset
 from column_features.column_name_features import ColumnNameFeature, COLUMN_CATEGORY_PROTOTYPES
 from column_features.data_type_features import  DataTypeFeatures
 from nltk.tokenize import word_tokenize
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
+import argparse
+from doduo.doduo.doduo import Doduo
 
-
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DODUO_DIR = os.path.join(BASE_DIR, "..", "doduo")
+sys.path.append(DODUO_DIR)
 ########################################
 class REDS:
     """
@@ -34,15 +40,22 @@ class REDS:
         self.colname_transformer = ColumnNameFeature(category_prototypes=COLUMN_CATEGORY_PROTOTYPES)
         self.colname_transformer.fit()
         self.dtype_transformer = DataTypeFeatures()
+        args = argparse.Namespace()
+        args.model = "viznet"
+        self.doduo = Doduo(args)
 
     def load_datasets(self):
-        self.DATASETS["rayyan"] = {
-            "name": "rayyan",
-            "path": os.path.join(self.DATASETS_FOLDER, "rayyan", "dirty.csv"),
-            "clean_path": os.path.join(self.DATASETS_FOLDER, "rayyan", "clean.csv"),
+        self.DATASETS["hospital"] = {
+            "name": "hospital",
+            "path": os.path.join(self.DATASETS_FOLDER, "hospital", "dirty.csv"),
+            "clean_path": os.path.join(self.DATASETS_FOLDER, "hospital", "clean.csv"),
             "functions": [...],
             "patterns": [...],
         }
+
+    def guess_semantic_domain_doduo(self, df):
+        annot_df = self.doduo.annotate_columns(df)
+        return annot_df.coltypes
 
 ###########################################################
     @staticmethod
@@ -152,14 +165,29 @@ class REDS:
             "pattern_histogram": pattern_histogram
             #"dboost_anomaly_ratio": anomaly_ratio
         }
+
+        #if semantic_domain_guess_doduo is not None:
+         #   column_profile["semantic_domain_guess_doduo"] = semantic_domain_guess_doduo
         return column_profile
     ################################################
     def dataset_profiler(self, dataset_dictionary):
         """
         This method profiles the dataset.
         """
-        print(dataset_dictionary)
+        # print(dataset_dictionary)
         d = Dataset(dataset_dictionary)
+        #df = d.dataframe
+        #semantic_guesses_doduo = self.guess_semantic_domain_doduo(df)
+        #column_profiles = []
+        #for i, column_name in enumerate(df.columns):
+        #    column_profile = self.column_profiler(
+        #        df[column_name],
+        #        column_name,
+        #        semantic_domain_guess_doduo=semantic_guesses_doduo[i]
+        #    )
+         #   column_profiles.append(column_profile)
+        #semantic_guesses_doduo = self.guess_semantic_domain_doduo(df)
+
         column_name_cat_list = [0.0] * d.dataframe.shape[1]
         data_type_list = [0.0] * d.dataframe.shape[1]
         column_index = [0.0] * d.dataframe.shape[1]
