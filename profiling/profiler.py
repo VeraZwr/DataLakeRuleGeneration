@@ -24,6 +24,7 @@ from doduo.doduo.doduo import Doduo
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DODUO_DIR = os.path.join(BASE_DIR, "..", "doduo")
 sys.path.append(DODUO_DIR)
+
 ########################################
 class REDS:
     """
@@ -40,24 +41,57 @@ class REDS:
         self.colname_transformer = ColumnNameFeature(category_prototypes=COLUMN_CATEGORY_PROTOTYPES)
         self.colname_transformer.fit()
         self.dtype_transformer = DataTypeFeatures()
+        self.file_name = "rayyan"
         args = argparse.Namespace()
         args.model = "viznet"
         self.doduo = Doduo(args)
 
     def load_datasets(self):
-        self.DATASETS["hospital"] = {
-            "name": "hospital",
-            "path": os.path.join(self.DATASETS_FOLDER, "hospital", "dirty.csv"),
-            "clean_path": os.path.join(self.DATASETS_FOLDER, "hospital", "clean.csv"),
+        self.DATASETS[self.file_name] = {
+            "name": self.file_name,
+            "path": os.path.join(self.DATASETS_FOLDER, self.file_name, "dirty.csv"),
+            "clean_path": os.path.join(self.DATASETS_FOLDER, self.file_name, "clean.csv"),
             "functions": [...],
             "patterns": [...],
         }
 
-    def guess_semantic_domain_doduo(self, df):
-        annot_df = self.doduo.annotate_columns(df)
-        return annot_df.coltypes
+    def guess_column_types(file_path, delimiter=',', has_headers=True):
+        try:
+            # Read the CSV file using the specified delimiter and header settings
+            df = pd.read_csv(file_path, sep=delimiter, header=0 if has_headers else None)
 
-###########################################################
+            # Initialize a dictionary to store column data types
+            column_types = {}
+
+            # Loop through columns and infer data types
+            for column in df.columns:
+                # sample_values = df[column].dropna().sample(min(5, len(df[column])), random_state=42)
+
+                # Check for datetime format "YYYY-MM-DD HH:MM:SS"
+                is_datetime = all(re.match(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', str(value)) for value in df[column])
+
+                # Check for date format "YYYY-MM-DD"
+                is_date = all(re.match(r'\d{4}-\d{2}-\d{2}', str(value)) for value in df[column])
+
+                # Assign data type based on format detection
+                if is_datetime:
+                    inferred_type = 'datetime64'
+                elif is_date:
+                    inferred_type = 'date'
+                else:
+                    inferred_type = pd.api.types.infer_dtype(df[column], skipna=True)
+
+                column_types[column] = inferred_type
+
+            return (True, column_types)  # Return success and column types
+        except pd.errors.ParserError:
+            return (False, str(e))  # Return error message
+
+    def guess_semantic_domain_doduo(self, df):
+        adf = self.doduo.annotate_columns(df)
+        return adf.coltypes, adf.valid_col_indices
+
+    ###########################################################
     @staticmethod
     def generalize_pattern(value):
         import string
@@ -86,6 +120,7 @@ class REDS:
         unique_ratio = distinct_num / float(row_num)
         max_digit_num = None
         max_decimal_num = None
+        most_frequent_first_digit = None
         # Type Inference.cannot get dominant type in messy column, only say it is mixed
         #TODO a method to get dominant type
         inferred_type = pd.api.types.infer_dtype(col, skipna=True)
@@ -99,7 +134,8 @@ class REDS:
             q3 = col_numeric.quantile(0.75)
             # First digit distribution (Benford)
             first_digits = col_numeric.astype(str).str.replace(r"\D", "", regex=True).str[0]
-            first_digit_dist = dict(Counter(first_digits))
+            first_digit_dist = Counter(first_digits)
+            most_frequent_first_digit = first_digit_dist.most_common(1)[0][0]
 
             col_numeric_to_string = col_numeric.dropna().astype(str)
             max_digit_num = col_numeric_to_string.apply(lambda x: len(x.split(".")[0].replace("-",""))).max()
@@ -110,16 +146,28 @@ class REDS:
 
         # Histogram (value counts, as fallback)
         value_counts = col.value_counts()
-        histogram = value_counts.index.tolist()
-        histogram_freq = value_counts.values.tolist()
+        histogram = value_counts.index[0] if not value_counts.empty else None
+        histogram_freq = value_counts.iloc[0] if not value_counts.empty else None
 
         # Equi-width histogram (only if numeric)
-        equi_width_bins = []
-        equi_depth_bins = []
+        #equi_width_bins = []
+        #equi_depth_bins = []
+        #if pd.api.types.is_numeric_dtype(col):
+        #    equi_width_bins = pd.cut(col, bins=10).value_counts().to_dict()
+        #    equi_depth_bins = pd.qcut(col, q=10, duplicates="drop").value_counts().to_dict()
+        # Equi-width / depth → keep largest bin only
+        equi_width_bins = {}
+        equi_depth_bins = {}
+        max_equi_width_bin = None
+        max_equi_depth_bin = None
+
         if pd.api.types.is_numeric_dtype(col):
             equi_width_bins = pd.cut(col, bins=10).value_counts().to_dict()
             equi_depth_bins = pd.qcut(col, q=10, duplicates="drop").value_counts().to_dict()
-
+            if equi_width_bins:
+                max_equi_width_bin = max(equi_width_bins, key=equi_width_bins.get)
+            if equi_depth_bins:
+                max_equi_depth_bin = max(equi_depth_bins, key=equi_depth_bins.get)
         #str len
         col_str = col.astype(str)
         value_len = col_str.apply(len)
@@ -129,7 +177,10 @@ class REDS:
 
         #patterns histogram
         value_patterns = col_str.apply(self.generalize_pattern)
-        pattern_histogram = dict(Counter(value_patterns))
+        #pattern_histogram = dict(Counter(value_patterns))
+        pattern_histogram = Counter(col_str.apply(self.generalize_pattern))
+        dominant_pattern = pattern_histogram.most_common(1)[0][0] if pattern_histogram else None
+
         #DBMS types
         # dBoost
         #col_df = pd.DataFrame({column_name: col})
@@ -145,24 +196,24 @@ class REDS:
             "null_ratio": null_ratio,
             "distinct_num": distinct_num,
             "unique_ratio": unique_ratio,
-            "histogram": histogram[:10],
-            "histogram_freq": histogram_freq[:10],#remove later
-            "equi_width_bins": equi_width_bins,
-            "equi_depth_bins": equi_depth_bins,
+            "histogram": histogram,
+            "histogram_freq": histogram_freq,
+            "equi_width_bin": max_equi_width_bin,
+            "equi_depth_bin": max_equi_depth_bin,
             "numeric_min_value": numeric_min,
             "numeric_max_value": numeric_max,
             "most_freq_value_ratio": most_freq_value_ratio,
             "Q1": q1,
             "Q2": q2,
             "Q3": q3,
-            "first_digit_distribution": first_digit_dist,
+            "first_digit": most_frequent_first_digit,
             "basic_data_type": inferred_type,
             "max_digit_num": max_digit_num,
             "max_decimal_num": max_decimal_num,
             "max_len": max_len,
             "min_len": min_len,
             "avg_len": avg_len,
-            "pattern_histogram": pattern_histogram
+            "domaint_pattern": dominant_pattern
             #"dboost_anomaly_ratio": anomaly_ratio
         }
 
@@ -220,7 +271,7 @@ class REDS:
         top_keywords_dictionary = {a.lower(): 1.0 for a in d.dataframe.columns}
         print(top_keywords_dictionary)
         stop_words_set = set(nltk.corpus.stopwords.words("english"))
-
+        semantic_guesses_doduo, valid_col_indices = self.guess_semantic_domain_doduo(d.dataframe)
 
         for column, attribute in enumerate(d.dataframe.columns):
             characters_dictionary = {}
@@ -336,10 +387,18 @@ class REDS:
 
         # build column profile
         column_profiles = []
-        for column_name in d.dataframe.columns:
+        valid_indices = list(range(len(semantic_guesses_doduo)))  # adjust if needed
+        semantic_list =[]
+        for i, column_name in enumerate(d.dataframe.columns):
             column_profile = self.column_profiler(d.dataframe[column_name], column_name)
+            if i in valid_indices:
+                column_profile["semantic_domain"] = semantic_guesses_doduo[valid_indices.index(i)]
+                semantic_list.append(column_name+": "+ semantic_guesses_doduo[valid_indices.index(i)])
+            else:
+                column_profile["semantic_domain"] = None
             column_profiles.append(column_profile)
         print(column_profiles)
+        #print("test",semantic_list)
         # Save column-level profile in a separate file
         pickle.dump(column_profiles, open(os.path.join(self.RESULTS_FOLDER, d.name, "column_profile.dictionary"), "wb"))
 
