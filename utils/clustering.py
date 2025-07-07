@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 from sklearn.cluster import DBSCAN
 from sklearn.neighbors import NearestNeighbors
@@ -30,7 +32,12 @@ def cluster_columns(columns, eps=0.5, min_samples=5,plot_eps=False):
     valid_columns = []
 
     for col in columns:
-        vec = [float(col.get(f, 0.0) or 0.0) for f in feature_keys]
+        vec = []
+        for f in feature_keys:
+            val = col.get(f, 0.0)
+            if val is None or (isinstance(val, float) and math.isnan(val)):
+                val = 0.0  # or use a better default
+            vec.append(float(val))
         data.append(vec)
         valid_columns.append(col["column_name"])
 

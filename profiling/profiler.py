@@ -112,6 +112,178 @@ class REDS:
         return "".join(pattern)
 
     # -------------------------
+    #combined with dataset profiler
+    def column_profiler(self, column_data, column_name):
+        """
+        Profile a single column with dataset-level stats applied per column.
+        """
+        import nltk, re, string, operator
+        from nltk.tokenize import word_tokenize
+        from collections import Counter
+        import numpy as np
+        import pandas as pd
+
+        col = column_data.fillna("").astype(str)
+        row_num = len(col)
+
+        stop_words_set = set(nltk.corpus.stopwords.words("english"))
+        keywords_dictionary = {}
+
+        # Basic nulls & uniqueness
+        null_ratio = (column_data == "").sum() / row_num
+        distinct_num = col.nunique()
+        unique_ratio = distinct_num / row_num
+
+        # Character-level stats
+        char_unique = set()
+        char_alphabet = char_numeric = char_punct = char_misc = 0
+
+        # Word-level stats
+        word_unique = set()
+        word_alphabet = word_numeric = word_punct = word_misc = word_total_len = 0
+
+        # Cell-level stats
+        cell_unique = set()
+        cell_alphabet = cell_numeric = cell_punct = cell_misc = cell_total_len = 0
+        cell_null = 0
+
+        for cell in col:
+            # Characters
+            for char in cell:
+                char_unique.add(char)
+                if re.fullmatch("[a-zA-Z]", char):
+                    char_alphabet += 1
+                elif re.fullmatch("[0-9]", char):
+                    char_numeric += 1
+                elif re.fullmatch(f"[{re.escape(string.punctuation)}]", char):
+                    char_punct += 1
+                else:
+                    char_misc += 1
+
+            # Words
+            words = word_tokenize(cell)
+            for word in words:
+                word_unique.add(word)
+                word_total_len += len(word)
+                if re.fullmatch("[a-zA-Z_-]+", word):
+                    word_alphabet += 1
+                    word_lower = word.lower()
+                    if word_lower not in stop_words_set:
+                        keywords_dictionary[word_lower] = keywords_dictionary.get(word_lower, 0) + 1
+                elif re.fullmatch("[0-9]+([.,][0-9]+)?", word):
+                    word_numeric += 1
+                elif re.fullmatch(f"[{re.escape(string.punctuation)}]+", word):
+                    word_punct += 1
+                else:
+                    word_misc += 1
+
+            # Cells
+            cell_unique.add(cell)
+            if re.fullmatch("[a-zA-Z _-]+", cell):
+                cell_alphabet += 1
+            elif re.fullmatch("[0-9]+([.,][0-9]+)?", cell):
+                cell_numeric += 1
+            elif re.fullmatch(f"[{re.escape(string.punctuation)}]+", cell):
+                cell_punct += 1
+            else:
+                cell_misc += 1
+
+            cell_total_len += len(cell)
+            if cell.strip() == "":
+                cell_null += 1
+
+        # Word length mean
+        word_len_avg = word_total_len / max(len(word_unique), 1)
+
+        # Numeric stats
+        try:
+            col_numeric = pd.to_numeric(col, errors="coerce").dropna()
+            numeric_min = col_numeric.min()
+            numeric_max = col_numeric.max()
+            most_freq_value_ratio = col_numeric.value_counts(normalize=True).iloc[0] if not col_numeric.empty else None
+            q1 = col_numeric.quantile(0.25)
+            q2 = col_numeric.quantile(0.50)
+            q3 = col_numeric.quantile(0.75)
+            first_digits = col_numeric.astype(str).str.replace(r"\D", "", regex=True).str[0]
+            first_digit = Counter(first_digits).most_common(1)[0][0] if not first_digits.empty else None
+        except:
+            numeric_min = numeric_max = most_freq_value_ratio = q1 = q2 = q3 = first_digit = None
+
+        # Histogram & bins
+        value_counts = col.value_counts()
+        histogram = value_counts.index[0] if not value_counts.empty else None
+        histogram_freq = value_counts.iloc[0] if not value_counts.empty else None
+
+        equi_width_bins = pd.cut(col_numeric, bins=10).value_counts().to_dict() if not col_numeric.empty else {}
+        equi_depth_bins = pd.qcut(col_numeric, q=10,
+                                  duplicates="drop").value_counts().to_dict() if not col_numeric.empty else {}
+        max_equi_width_bin = max(equi_width_bins, key=equi_width_bins.get) if equi_width_bins else None
+        max_equi_depth_bin = max(equi_depth_bins, key=equi_depth_bins.get) if equi_depth_bins else None
+
+        # String length
+        col_lengths = col.apply(len)
+        min_len = col_lengths.min()
+        max_len = col_lengths.max()
+        avg_len = col_lengths.mean()
+
+        # Pattern
+        pattern_hist = Counter(col.apply(self.generalize_pattern))
+        dominant_pattern = pattern_hist.most_common(1)[0][0] if pattern_hist else None
+
+        return {
+            "column_name": column_name,
+            "row_num": row_num,
+            "null_ratio": null_ratio,
+            "distinct_num": distinct_num,
+            "unique_ratio": unique_ratio,
+
+            "characters_unique": len(char_unique),
+            "characters_alphabet": char_alphabet,
+            "characters_numeric": char_numeric,
+            "characters_punctuation": char_punct,
+            "characters_miscellaneous": char_misc,
+
+            "words_unique": len(word_unique),
+            "words_alphabet": word_alphabet,
+            "words_numeric": word_numeric,
+            "words_punctuation": word_punct,
+            "words_miscellaneous": word_misc,
+            "words_length_avg": word_len_avg,
+
+            "cells_unique": len(cell_unique),
+            "cells_alphabet": cell_alphabet,
+            "cells_numeric": cell_numeric,
+            "cells_punctuation": cell_punct,
+            "cells_miscellaneous": cell_misc,
+            "cells_length_avg": cell_total_len / row_num,
+            "cells_null": cell_null,
+
+            "top_keywords": dict(
+                sorted(keywords_dictionary.items(), key=lambda x: x[1], reverse=True)[:self.KEYWORDS_COUNT_PER_COLUMN]),
+
+            "numeric_min": numeric_min,
+            "numeric_max": numeric_max,
+            "Q1": q1,
+            "Q2": q2,
+            "Q3": q3,
+            "most_freq_value_ratio": most_freq_value_ratio,
+            "first_digit": first_digit,
+
+            "histogram": histogram,
+            "histogram_freq": histogram_freq,
+            "equi_width_bin": max_equi_width_bin,
+            "equi_depth_bin": max_equi_depth_bin,
+
+            "max_len": max_len,
+            "min_len": min_len,
+            "avg_len": avg_len,
+
+            "dominant_pattern": dominant_pattern,
+
+            "basic_data_type": pd.api.types.infer_dtype(column_data, skipna=True),
+        }
+
+    """
     def column_profiler(self, column_data, column_name):
         col = column_data.dropna() #remove nan or none
         row_num = len(column_data)
@@ -220,6 +392,7 @@ class REDS:
         #if semantic_domain_guess_doduo is not None:
          #   column_profile["semantic_domain_guess_doduo"] = semantic_domain_guess_doduo
         return column_profile
+    """
     ################################################
     def dataset_profiler(self, dataset_dictionary):
         """
