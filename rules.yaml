@@ -1,0 +1,32 @@
+# rules.yaml
+# Single Column: Cardinality Rules
+
+is_primary_key: distinct == num_rows AND nulls == 0
+is_unique: unique_ratio >= 1.0
+is_nullable: nulls > 0
+is_constant: distinct == 1
+has_low_cardinality: distinct / num_rows < 0.1
+
+# Single Column: Distribution Rules
+value_in_range: min >= domain_min AND max <= domain_max
+quartile_thresholds: q1 >= min_threshold AND q3 <= max_threshold
+benford_conformity: first_digit_distribution matches benford_distribution
+
+# Single Column: Type, Pattern, Domain Rules
+matches_regex: pattern == expected_pattern
+length_within: length_min >= min_length AND length_max <= max_length
+decimal_precision: decimal_places <= max_decimals
+domain_is: values IN approved_list
+semantic_class_is: inferred_class == expected_class
+
+# Cross-Field Rules
+is_composite_key: count(distinct composite_key_columns) == num_rows
+conditional_dependency: IF col_A == 'US' THEN col_B IS NOT NULL
+field_comparison: col_start_date <= col_end_date
+cross_field_sum: subtotal + tax == total
+
+#  Multiple Sources: Overlap Rules
+inclusion_dependency: child_values ⊆ parent_values
+foreign_key: child_column IN parent_pk AND parent_pk IS UNIQUE
+topical_equivalence: match_rate >= 0.98
+schematic_alignment: data_type_A == data_type_B AND pattern_A == pattern_B
