@@ -1,0 +1,131 @@
+{
+  "1": {
+    "profile": {
+      "size": 29,
+      "type": "structured",
+      "common_patterns": [
+        [
+          "AAAAAAA",
+          3
+        ],
+        [
+          "00000",
+          2
+        ],
+        [
+          "AA",
+          2
+        ],
+        [
+          "00",
+          2
+        ],
+        [
+          "AAAAAAAAAAA",
+          1
+        ]
+      ],
+      "typical_ranges": {
+        "null_ratio": {
+          "min": 0.0,
+          "max": 0.087,
+          "mean": 0.008361997424524252,
+          "std": 0.020575643040074358
+        },
+        "unique_ratio": {
+          "min": 0.004,
+          "max": 0.9741542625169147,
+          "mean": 0.11688019058721578,
+          "std": 0.18289346356322797
+        },
+        "characters_numeric": {
+          "min": 0,
+          "max": 10945,
+          "mean": 2172.0,
+          "std": 2915.233556622037
+        },
+        "characters_alphabet": {
+          "min": 0,
+          "max": 102088,
+          "mean": 13662.896551724138,
+          "std": 20453.159576077014
+        },
+        "avg_len": {
+          "min": 1.081,
+          "max": 26.913,
+          "mean": 9.971143348490461,
+          "std": 7.54658952966211
+        },
+        "most_freq_value_ratio": {
+          "min": 0.025726141078838173,
+          "max": 0.21119324181626187,
+          "mean": 0.07810843036920312,
+          "std": 0.05578745699147084
+        }
+      },
+      "dominant_features": {},
+      "variance_features": {}
+    },
+    "rules": [
+      {
+        "type": "pattern_match",
+        "pattern": "AAAAAAA",
+        "flexibility": 0.2,
+        "weight": 0.5
+      },
+      {
+        "type": "null_consistency",
+        "expected_range": [
+          0.0,
+          0.087
+        ],
+        "weight": 0.1
+      }
+    ],
+    "error_patterns": {
+      "high_null_columns": [],
+      "low_uniqueness": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        16,
+        18,
+        21,
+        22,
+        23,
+        24,
+        28
+      ],
+      "outlier_lengths": [
+        17,
+        18,
+        28
+      ],
+      "inconsistent_types": []
+    },
+    "feature_importance": {
+      "null_ratio": 9.918625899968589e-13,
+      "unique_ratio": 7.83684118013185e-11,
+      "characters_numeric": 0.019910922655747537,
+      "characters_alphabet": 0.980088943837151,
+      "avg_len": 1.334277412180469e-07
+    },
+    "quality_metrics": {
+      "cohesion": 0.937914587657209,
+      "consistency": 0.9115404899755215,
+      "size": 29
+    }
+  }
+}

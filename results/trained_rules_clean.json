@@ -1,0 +1,102 @@
+{
+  "1": {
+    "feature_ranges": {
+      "max_len": {
+        "low": 2.4000000000000004,
+        "high": 40.19999999999999,
+        "mean": 17.620689655172413,
+        "std": 17.398798597254466
+      },
+      "Q3": {
+        "low": NaN,
+        "high": NaN,
+        "mean": NaN,
+        "std": NaN
+      },
+      "null_ratio": {
+        "low": 0.0,
+        "high": 0.05287883817427386,
+        "mean": 0.008361997424524252,
+        "std": 0.020575643040074358
+      },
+      "unique_ratio": {
+        "low": 0.007749377593360997,
+        "high": 0.30559999999999987,
+        "mean": 0.11688019058721578,
+        "std": 0.18289346356322797
+      },
+      "min_len": {
+        "low": 0.0,
+        "high": 14.399999999999991,
+        "mean": 4.827586206896552,
+        "std": 5.058751144217325
+      },
+      "Q1": {
+        "low": NaN,
+        "high": NaN,
+        "mean": NaN,
+        "std": NaN
+      },
+      "distinct_num": {
+        "low": 8.8,
+        "high": 555.1999999999999,
+        "mean": 374.6551724137931,
+        "std": 1298.7076939008962
+      }
+    },
+    "rules": {
+      "is_identical": {
+        "description": "All values are unique and non-null",
+        "conditions": {
+          "unique_ratio": 0.11688019058721578,
+          "null_ratio": 0.008361997424524252
+        }
+      },
+      "is_single_value": {
+        "description": "Only one distinct value",
+        "conditions": {
+          "distinct_num": 374.6551724137931
+        }
+      },
+      "is_primary_key": {
+        "description": "Column is a primary key (unique & non-null)",
+        "conditions": {
+          "unique_ratio": 0.11688019058721578,
+          "null_ratio": 0.008361997424524252
+        }
+      },
+      "is_unique": {
+        "description": "All values are unique",
+        "conditions": {
+          "unique_ratio": 0.11688019058721578
+        }
+      },
+      "is_nullable": {
+        "description": "Contains null values",
+        "conditions": {
+          "null_ratio": "lambda"
+        }
+      },
+      "has_low_cardinality": {
+        "description": "Low cardinality (distinct values < 10%)",
+        "conditions": {
+          "unique_ratio": "lambda"
+        }
+      },
+      "quartile_thresholds": {
+        "description": "Quartile thresholds within acceptable range",
+        "conditions": {
+          "Q1": "lambda",
+          "Q3": "lambda"
+        }
+      },
+      "length_within": {
+        "description": "String length within expected range",
+        "conditions": {
+          "min_len": "lambda",
+          "max_len": "lambda"
+        }
+      }
+    }
+  }
+}
