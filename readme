@@ -1,3 +1,5 @@
+Full technical report version of our paper can be found https://www.overleaf.com/read/gdfryrbwwgwx#ab7fe9.
+
 1. read file and generate data profile
     column_features: extract features
     reds.py: read the file and save the profile in results folder as .dictionary
