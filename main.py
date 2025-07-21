@@ -1,9 +1,7 @@
 import os
 import pickle
-
 from matplotlib import pyplot as plt
 from sklearn.decomposition import PCA
-
 from rules.loader import load_all_rules, load_rules_from_yaml
 from rules.evaluation import get_shared_rules_per_cluster, detect_cell_errors_in_clusters
 from utils.clustering import cluster_columns
@@ -73,6 +71,7 @@ def main():
     #_ = cluster_columns(column_profiles, min_samples=5, plot_eps=True)
 
     # Step 1: Cluster columns using full profile features
+    # method 1: cluster by all data proile
     print("\nClustering all columns based on full profile features...")
     #clusters = cluster_columns(column_profiles, n_clusters=5) #kMeans
     #clusters = cluster_columns(column_profiles, eps=0.3, min_samples=5, plot_eps=False)
@@ -93,38 +92,6 @@ def main():
         #for cid, colnames in clusters.items(): # without table name
         for cid, colnames in clustered_columns_with_dataset.items():
             print(f"  Cluster {cid}: {colnames}")
-
-            # Plug-In: Use the cluster matcher to analyze and generate cluster-specific rules
-            matcher = ClusterBasedColumnMatcher()
-            cluster_analysis = matcher.analyze_clusters(clustered_features)
-            trained_rules = train_clean_rules(cluster_analysis, clustered_features, matcher, SIMPLE_RULE_PROFILES,
-                                              quintet_base_path="datasets/Quintet")
-            # Save trained rules to JSON
-            serialize_trained_rules(trained_rules, "results/trained_rules_clean.json")
-
-
-            print("Trained rules including feature ranges saved to 'results/trained_rules_with_ranges.json'")
-            # Optional: Save or print trained rules
-            print(f"\nTrained rules for eps={eps}:")
-            for cid, rulelist in trained_rules.items():
-                print(f"Cluster {cid}: {list(rulelist.keys())}")
-
-        """
-                # Show learned cluster-level rules
-                for cid, analysis in cluster_analysis.items():
-                    print(f"\n=== Cluster {cid} ===")
-                    print(f"Profile: {analysis['profile']}")
-                    print(f"Rules: {analysis['rules']}")
-                    print(f"Error patterns: {analysis['error_patterns']}")
-                    print(f"Feature importance: {analysis['feature_importance']}")
-                    print(f"Quality metrics: {analysis['quality_metrics']}")
-
-                cluster_analysis_clean = {
-                    int(k): v for k, v in cluster_analysis.items()
-                }
-                with open("results/cluster_analysis.json", "w") as f:
-                    json.dump(cluster_analysis_clean, f, indent=2, cls=NumpyEncoder)
-        """
 
         #detect missing columns
         clustered_columns = set()

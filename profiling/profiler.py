@@ -1,25 +1,18 @@
 import argparse
 import os
 import sys
-import re
-import time
-import math
-import string
-import random
-import operator
 import pickle
-import numpy
-import nltk
-import pandas as pd
-from collections import Counter
+import numpy as np
+from sklearn.ensemble import GradientBoostingRegressor
 from dataset import Dataset
 from column_features.column_name_features import ColumnNameFeature, COLUMN_CATEGORY_PROTOTYPES
 from column_features.data_type_features import  DataTypeFeatures
-from nltk.tokenize import word_tokenize
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
 import argparse
 from doduo.doduo.doduo import Doduo
+import nltk, re, string, operator
+from nltk.tokenize import word_tokenize
+from collections import Counter
+import pandas as pd
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DODUO_DIR = os.path.join(BASE_DIR, "..", "doduo")
@@ -41,7 +34,7 @@ class REDS:
         self.colname_transformer = ColumnNameFeature(category_prototypes=COLUMN_CATEGORY_PROTOTYPES)
         self.colname_transformer.fit()
         self.dtype_transformer = DataTypeFeatures()
-        self.file_name = "rayyan"
+        self.file_name = "305b_Assessed_Lake_2020"
         args = argparse.Namespace()
         args.model = "viznet"
         self.doduo = Doduo(args)
@@ -55,37 +48,60 @@ class REDS:
             "patterns": [...],
         }
 
-    def guess_column_types(file_path, delimiter=',', has_headers=True):
-        try:
-            # Read the CSV file using the specified delimiter and header settings
-            df = pd.read_csv(file_path, sep=delimiter, header=0 if has_headers else None)
+    def guess_column_type(self, column_data):
+        col = column_data.dropna()
+        if col.empty:
+            return "empty"
 
-            # Initialize a dictionary to store column data types
-            column_types = {}
+        col_str = col.astype(str)
 
-            # Loop through columns and infer data types
-            for column in df.columns:
-                # sample_values = df[column].dropna().sample(min(5, len(df[column])), random_state=42)
+        datetime_match = col_str.str.match(r"\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$").mean()
+        if datetime_match > 0.7:
+            return "datetime64"
 
-                # Check for datetime format "YYYY-MM-DD HH:MM:SS"
-                is_datetime = all(re.match(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', str(value)) for value in df[column])
+        am_pm_match = col_str.str.contains(
+            r"^\s*\d{1,2}:\d{2}(?::\d{2})?\s*(?:a\.?\s*m\.?|p\.?\s*m\.?)\.?\s*$",
+            flags=re.IGNORECASE
+        ).mean()
+        if am_pm_match > 0.6:
+            return "time_am_pm"
 
-                # Check for date format "YYYY-MM-DD"
-                is_date = all(re.match(r'\d{4}-\d{2}-\d{2}', str(value)) for value in df[column])
+        time_24h_match = col_str.str.match(r"^\s*\d{1,2}:\d{2}(?::\d{2})?\s*$").mean()
+        if time_24h_match > 0.6:
+            return "time_24h"
 
-                # Assign data type based on format detection
-                if is_datetime:
-                    inferred_type = 'datetime64'
-                elif is_date:
-                    inferred_type = 'date'
-                else:
-                    inferred_type = pd.api.types.infer_dtype(df[column], skipna=True)
+        date_match = col_str.str.match(r"\d{4}-\d{2}-\d{2}$").mean()
+        if date_match > 0.7:
+            return "date"
 
-                column_types[column] = inferred_type
+        percentage_match = col_str.str.endswith('%').mean()
+        if percentage_match > 0.7:
+            return "percentage"
 
-            return (True, column_types)  # Return success and column types
-        except pd.errors.ParserError:
-            return (False, str(e))  # Return error message
+        bool_vals = {"true", "false", "yes", "no", "1", "0"}
+        bool_match = col_str.str.lower().isin(bool_vals).mean()
+        if bool_match > 0.7:
+            return "boolean"
+
+        numeric_col = pd.to_numeric(col_str, errors='coerce')
+        numeric_ratio = numeric_col.notna().mean()
+        if numeric_ratio > 0.7:
+            is_integer = (numeric_col.dropna() == numeric_col.dropna().astype(int)).mean()
+            if is_integer > 0.7:
+                return "integer"
+            else:
+                return "float"
+
+        unique_count = col_str.nunique()
+        total_count = len(col_str)
+        if total_count > 0 and (unique_count / total_count < 0.05) and unique_count <= 20:
+            return "categorical"
+
+        inferred = pd.api.types.infer_dtype(col_str, skipna=True)
+        if inferred in ["string", "unicode", "mixed"]:
+            return inferred
+
+        return "unknown"
 
     def guess_semantic_domain_doduo(self, df):
         adf = self.doduo.annotate_columns(df)
@@ -111,17 +127,27 @@ class REDS:
                 pattern.append("?")
         return "".join(pattern)
 
+    def regex_pattern_category(self, value):
+        value = value.strip()
+        pattern = ""
+        for char in value:
+            if char.isdigit():
+                pattern += r"\d"
+            elif char.isalpha():
+                pattern += r"[A-Za-z]"
+            elif char.isspace():
+                pattern += r"\s"
+            else:
+                pattern += re.escape(char)
+        return "^" + pattern + "$"
+
     # -------------------------
     #combined with dataset profiler
     def column_profiler(self, column_data, column_name):
         """
         Profile a single column with dataset-level stats applied per column.
         """
-        import nltk, re, string, operator
-        from nltk.tokenize import word_tokenize
-        from collections import Counter
-        import numpy as np
-        import pandas as pd
+
 
         col = column_data.fillna("").astype(str)
         row_num = len(col)
@@ -198,6 +224,25 @@ class REDS:
         # Numeric stats
         try:
             col_numeric = pd.to_numeric(col, errors="coerce").dropna()
+            max_digits = None
+            max_decimals = None
+
+            if not col_numeric.empty:
+                digits_counts = []
+                decimals_counts = []
+                for num in col_numeric:
+                    num_str = str(num)
+                    if '.' in num_str:
+                        integer_part, decimal_part = num_str.split('.')
+                        digits_counts.append(
+                            len(integer_part.replace('-', '').lstrip('0')) + len(decimal_part.rstrip('0')))
+                        decimals_counts.append(len(decimal_part.rstrip('0')))
+                    else:
+                        digits_counts.append(len(num_str.replace('-', '').lstrip('0')))
+                        decimals_counts.append(0)
+                max_digits = max(digits_counts) if digits_counts else None
+                max_decimals = max(decimals_counts) if decimals_counts else None
+
             numeric_min = col_numeric.min()
             numeric_max = col_numeric.max()
             most_freq_value_ratio = col_numeric.value_counts(normalize=True).iloc[0] if not col_numeric.empty else None
@@ -227,8 +272,9 @@ class REDS:
         avg_len = col_lengths.mean()
 
         # Pattern
-        pattern_hist = Counter(col.apply(self.generalize_pattern))
+        pattern_hist = Counter(col.apply(self.regex_pattern_category))
         dominant_pattern = pattern_hist.most_common(1)[0][0] if pattern_hist else None
+
 
         return {
             "column_name": column_name,
@@ -263,6 +309,8 @@ class REDS:
 
             "numeric_min": numeric_min,
             "numeric_max": numeric_max,
+            "max_digits": max_digits,
+            "max_decimals": max_decimals,
             "Q1": q1,
             "Q2": q2,
             "Q3": q3,
@@ -279,8 +327,9 @@ class REDS:
             "avg_len": avg_len,
 
             "dominant_pattern": dominant_pattern,
+            "basic_data_type": self.guess_column_type(column_data)
 
-            "basic_data_type": pd.api.types.infer_dtype(column_data, skipna=True),
+            #"basic_data_type": pd.api.types.infer_dtype(column_data, skipna=True),
         }
 
     """
@@ -506,10 +555,10 @@ class REDS:
                     top_keywords_dictionary[keyword] = float(frequency) / d.dataframe.shape[0]
 
         def f(columns_value_list):
-            return numpy.mean(numpy.array(columns_value_list).astype(float) / d.dataframe.shape[0])
+            return np.mean(np.array(columns_value_list).astype(float) / d.dataframe.shape[0])
 
         def g(columns_value_list):
-            return numpy.var(numpy.array(columns_value_list).astype(float) / d.dataframe.shape[0])
+            return np.var(np.array(columns_value_list).astype(float) / d.dataframe.shape[0])
 
         dataset_profile = {
             #"dataset_column_names_cat": column_name_cat_list,
@@ -574,7 +623,35 @@ class REDS:
         #print("test",semantic_list)
         # Save column-level profile in a separate file
         pickle.dump(column_profiles, open(os.path.join(self.RESULTS_FOLDER, d.name, "column_profile.dictionary"), "wb"))
+    def train_column_regression(self, all_column_profiles, performance_labels):
+        """
+        Train regression models to predict strategy performance per column.
+        :param all_column_profiles: list of column profiles (dict)
+        :param performance_labels: list of target performance metrics (dict per strategy)
+        """
+        # Example: predict F1 score per strategy
+        feature_names = [k for k in all_column_profiles[0].keys() if isinstance(all_column_profiles[0][k], (int, float))]
 
+        X = np.array([[profile[feat] for feat in feature_names] for profile in all_column_profiles])
+        regressors = {}
+
+        for strategy_name in performance_labels[0].keys():
+            y = np.array([perf[strategy_name] for perf in performance_labels])
+            model = GradientBoostingRegressor(n_estimators=100, learning_rate=0.1)
+            model.fit(X, y)
+            regressors[strategy_name] = model
+            print(f"Trained regressor for {strategy_name}")
+
+        self.column_regressors = regressors
+        self.column_features = feature_names
+
+    def predict_strategy_performance(self, column_profile):
+        """
+        Predict strategy performance for a new column profile.
+        """
+        X = np.array([[column_profile[feat] for feat in self.column_features]])
+        predictions = {strategy: model.predict(X)[0] for strategy, model in self.column_regressors.items()}
+        return predictions
 
 ########################################
 

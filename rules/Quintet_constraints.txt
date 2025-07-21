@@ -1,0 +1,20 @@
+-- semantic
+-- statistical
+-- structural
+t1 & EQ(t1.unique_ratio, 1.0) & EQ(t1.null_ratio, 0.0) & EQ(t1.basic_data_type, "integer") & EQ(t1.semantic_domain, "rank")         -- is_id
+t1 & EQ(t1.distinct_num, 1)                                      -- is_single_value
+t1 & EQ(t1.unique_ratio, 1.0)                                    -- is_unique
+t1 & GQ(t1.null_ratio, 0)                                       -- is_nullable
+t1 & LEQ(t1.unique_ratio, 0.5)                                   -- has_low_cardinality
+
+t1 & GT(t1.numeric_min, 0) & LT(t1.numeric_max, 100) -- value_in_range
+t1 & LT(t1.Q1, 0) & GT(t1.Q3, 1000)                             -- quartile_thresholds
+t1 & LT(t1.min_len, 3) & GT(t1.max_len, 50)                     -- length_within
+t1 & GT(t1.max_decimal_num, 3)                                   -- decimal_precision
+
+t1 & EQ(t1.semantic_domain, "year") & EQ(t1.dominant_pattern, "^[\d]{4}$")               -- matches_regex
+t1 & EQ(t1.basic_data_type, "boolean")& EQ(t1.semantic_domain, "status") & EQ(t1.dominant_pattern, "^(yes|no)$")               -- matches_regex
+t1 & EQ(t1.semantic_domain, "name") & EQ(t1.basic_data_type, "string") --base_data_type_is
+t1 & NEQ(t1.first_digit_distribution, "benford_distribution")    -- benford_conformity
+t1 & NEQ(t1.semantic_type, "expected_class")                     -- semantic_class_is
+t1 & LEQ(t1.words_alphabet_mean, 0.5) & LEQ(t1.words_unique_mean, 0.2) & GEQ(t1.null_ratio, 0.5) -- is_english_text

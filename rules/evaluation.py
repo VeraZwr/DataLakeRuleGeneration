@@ -43,23 +43,9 @@ def analyze_rule_in_cluster(rule, cluster_columns, column_profiles):
 
 
 def get_shared_rules_per_cluster(rules, column_profiles, clusters, threshold=0.7):
-    """
-    Determine which rules apply to most columns in each cluster.
-
-    Parameters:
-        rules: list of Rule objects (with `applies(col)` method)
-        column_profiles: list of column profile dicts
-        clusters: dict of {cluster_id: list of column names}
-        threshold: float (e.g., 0.7 means rule must apply to 70%+ of cluster)
-
-    Returns:
-        shared_rules: dict of {cluster_id: list of rule names}
-    """
     shared_rules = {}
-
     # Build a lookup: column_name -> profile
     col_lookup = {col['column_name']: col for col in column_profiles}
-
     for cid, colnames in clusters.items():
         applicable_rules = []
 

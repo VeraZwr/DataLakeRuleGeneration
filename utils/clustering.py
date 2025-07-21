@@ -1,10 +1,10 @@
 import math
-
 import numpy as np
 from sklearn.cluster import DBSCAN
 from sklearn.neighbors import NearestNeighbors
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 import matplotlib.pyplot as plt
+import pandas as pd
 
 def plot_k_distance(data, k=4):
     nbrs = NearestNeighbors(n_neighbors=k)
@@ -82,11 +82,9 @@ def cluster_columns(columns, eps=0.5, min_samples=5,plot_eps=False):
 
     return clusters
 
-""""KMeans-------------
-import numpy as np
 from sklearn.cluster import KMeans
 
-def cluster_columns(columns, n_clusters=5):
+def k_means_cluster_columns(columns, n_clusters=5):
     # Collect all numeric feature keys
     feature_keys = sorted({
         k for col in columns
@@ -117,7 +115,7 @@ def cluster_columns(columns, n_clusters=5):
 
     return clusters
 
-def cluster_columns(columns, feature_keys, n_clusters=5):
+def k_means_cluster_columns(columns, feature_keys, n_clusters=5):
     data = []
     valid_columns = []
 
@@ -164,4 +162,58 @@ def cluster_columns(columns, feature_keys, n_clusters=5):
         clusters.setdefault(label, []).append(col_name)
 
     return clusters
-"""
+
+# use data profile for different type of clusters
+# content-based, structure-based, quality-based -> semantic, structural, statistical
+# Step 1: Build feature dataframe
+def encode_semantic(semantic):
+    mapping = {'identifier': 1, 'price': 2, 'description': 3}
+    return mapping.get(semantic, 0)
+
+def encode_data_type(data_type):
+    mapping = {'integer': 1, 'float': 2, 'string': 3, 'date': 4}
+    return mapping.get(data_type, 0)
+
+
+# Modified function: Three strategy clustering based on numeric features using DBSCAN
+import numpy as np
+import math
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.cluster import DBSCAN
+
+
+def cluster_columns_by_strategy(columns, eps=0.5, min_samples=5, plot_eps=False):
+    # Strategy 1: ID-like columns (high unique_ratio, low null_ratio)
+    # Strategy 2: Numeric fields (price, amount, measurable quantities)
+    # Strategy 3: Text-like fields (character ratios, word length)
+
+    strategy_clusters = {'id_like': [], 'numeric': [], 'text_like': [], 'unclustered': []}
+
+    for col in columns:
+        name = col.get('column_name', 'unknown')
+        data_type = col.get('basic_data_type', 'unknown')
+        unique_ratio = col.get('unique_ratio', 0)
+        null_ratio = col.get('null_ratio', 1)
+        char_alpha = col.get('characters_alphabet', 0)
+        char_numeric = col.get('characters_numeric', 0)
+        avg_word_len = col.get('words_length_avg', 0)
+
+        # Strategy 1: ID-like columns
+        if data_type in ['integer', 'string'] and unique_ratio >= 0.95 and null_ratio <= 0.1:
+            strategy_clusters['id_like'].append(name)
+
+        # Strategy 2: Numeric measurable fields
+        elif data_type in ['integer', 'float'] and unique_ratio < 0.95 and null_ratio <= 0.5:
+            strategy_clusters['numeric'].append(name)
+
+        # Strategy 3: Text-like fields (more alphabetic characters, longer word length)
+        elif data_type == 'string' and char_alpha >= 0.5 and avg_word_len >= 3:
+            strategy_clusters['text_like'].append(name)
+
+        else:
+            strategy_clusters['unclustered'].append(name)
+
+    return strategy_clusters
+
+
+# Example usage on mock data
