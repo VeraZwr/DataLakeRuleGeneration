@@ -6,13 +6,13 @@ SIMPLE_RULE_PROFILES = {
         "conditions": {"unique_ratio": 1.0, "null_ratio": 0.0, "semantic_domain": "rank", "basic_data_type": "integer"},
         "features": ["unique_ratio", "null_ratio", "basic_data_type", "semantic_domain"],
         "description": "All values are unique and non-null",
-        "sample_column": "index"
+        "sample_column": "hospital_index"
     },
     "is_single_value": {
-        "conditions": {"distinct_num": 1},
+        "conditions": {"distinct_num": 1.0},
         "features": ["distinct_num"],
         "description": "Only one distinct value",
-        "sample_column": "HospitalType"
+        "sample_column": "hospital_type"
     },
     #"is_primary_key": {
     #    "conditions": {"unique_ratio": 1.0, "null_ratio": 0.0},
@@ -23,19 +23,19 @@ SIMPLE_RULE_PROFILES = {
         "conditions": {"unique_ratio": 1.0},
         "features": ["unique_ratio"],
         "description": "All values are unique",
-        "sample_column": "index"
+        "sample_column": "hospital_index"
     },
     "is_nullable": {
         "conditions": {"null_ratio": lambda x: x > 0},
         "features": ["null_ratio"],
         "description": "Contains null values",
-        "sample_column": "ibu" # hospital only have empty value
+        "sample_column": "beers_ibu" # hospital only have empty value
     },
     "has_low_cardinality": {
         "conditions": {"unique_ratio": lambda x: x < 0.1},
         "features": ["unique_ratio"],
         "description": "Low cardinality (distinct values < 10%)",
-        "sample_column": "Condition"
+        "sample_column": "hospital_condition"
     },
     "value_in_range": {
         "conditions": {
@@ -44,7 +44,7 @@ SIMPLE_RULE_PROFILES = {
         },
         "features": ["numeric_min_value", "numeric_max_value"],
         "description": "Values within expected range",
-        "sample_column": "RatingValue" # movies_1
+        "sample_column": "movies_1_rating_value" # movies_1
     },
     "quartile_thresholds": {
         "conditions": {
@@ -65,38 +65,31 @@ SIMPLE_RULE_PROFILES = {
     },
     "decimal_precision": {
         "conditions": {
-            "max_decimal_num": lambda x: x <= 3
+            "max_decimal": lambda x: x <= 3
         },
-        "features": ["max_decimal_num"],
+        "features": ["max_decimal"],
         "description": "Decimal places within acceptable precision",
-        "sample_column": "abv" #beers
+        "sample_column": "beers_abv" #beers
     },
-    "matches_regex": {
+    "matches_regex_time_ap_pm": {
         "conditions": {"basic_data_type": "time_am_pm", "semantic_domain":"duration", "dominant_pattern": "^\\d:\\d\\d\\s[A-Za-z]\\.[A-Za-z]\\.$"},
         "features": ["basic_data_type", "semantic_domain", "dominant_pattern"],
         "description": "Matches expected regex pattern",
-        "sample_column": "sched_dep_time"
+        "sample_column": "flights_sched_dep_time"
     },
-    "matches_regex": {
+    "matches_regex_state": {
         "conditions": {"basic_data_type": "string", "semantic_domain": "state",
                        "dominant_pattern": "^[A-Za-z][A-Za-z]$"},
         "features": ["basic_data_type", "semantic_domain", "dominant_pattern"],
         "description": "Matches expected regex pattern",
-        "sample_column": "state"
+        "sample_column": "hospital_state"
     },
-    "matches_regex": {
+    "matches_regex_zip": {
         "conditions": {"basic_data_type": "integer", "semantic_domain": "region",
                        "dominant_pattern": "^\\d\\d\\d\\d\\d$"},
         "features": ["basic_data_type", "semantic_domain", "dominant_pattern"],
         "description": "Matches expected regex pattern",
-        "sample_column": "zip"
-    },
-    "matches_regex": {
-        "conditions": {"basic_data_type": "time_am_pm", "semantic_domain": "duration",
-                       "dominant_pattern": "^\\d:\\d\\d\\s[A-Za-z]\\.[A-Za-z]\\.$"},
-        "features": ["basic_data_type", "semantic_domain", "dominant_pattern"],
-        "description": "Matches expected regex pattern",
-        "sample_column": "sched_dep_time"
+        "sample_column": "hospital_zip"
     },
     #"benford_conformity": {
     #    "conditions": {"first_digit_distribution": "benford_distribution"},
@@ -109,11 +102,11 @@ SIMPLE_RULE_PROFILES = {
     #    "features": ["semantic_domain"],
     #    "description": "Semantic class matches expected class"
     #},
-    "top_key_words_are": {
+    "top_key_words_boolean": {
         "conditions": {"basic_data_type": "boolean", "semantic_domain":"status", "top_keywords": {"yes", "no"}},
         "features": ["basic_data_type", "semantic_domain"],
         "description": "Semantic class matches expected class",
-        "sample_column": "emergency_services"
+        "sample_column": "hospital_emergency_service"
     },
     "is_english_text": {
     "conditions": {
@@ -128,12 +121,13 @@ SIMPLE_RULE_PROFILES = {
 }
 
 class DictionaryRule(BaseRule):
-    def __init__(self, name, conditions, description, features):
+    def __init__(self, name, conditions, description, features, sample_column):
         self.name = name
         self.description = description
         self.conditions = conditions
         self.used_features = features
-        self.expected_value = None  # for cell-level checks
+        self.expected_value = None
+        self.sample_column = sample_column
 
     def applies(self, col):
         for k, v in self.conditions.items():
@@ -164,6 +158,6 @@ class DictionaryRule(BaseRule):
 
 def load_dictionary_rules():
     return [
-        DictionaryRule(name, profile["conditions"], profile["description"], profile["features"])
+        DictionaryRule(name, profile["conditions"], profile["description"], profile["features"], profile.get("sample_column"))
         for name, profile in SIMPLE_RULE_PROFILES.items()
     ]

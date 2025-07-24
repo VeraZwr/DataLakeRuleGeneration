@@ -1,4 +1,6 @@
 # rules/evaluation.py
+import pandas
+
 
 def detect_rule_violations(rule, cluster_columns, column_profiles):
     violations = []
@@ -64,36 +66,27 @@ def get_shared_rules_per_cluster(rules, column_profiles, clusters, threshold=0.7
     return shared_rules
 
 
-def detect_cell_errors(rule, column_name, column_data):
-    errors = []
+def get_shared_rules_per_cluster_with_sample_cloumn(rules, column_profiles, clusters):
+    shared_rules = {}
+    col_lookup = {col['column_name']: col for col in column_profiles}
 
-    if hasattr(rule, "prepare"):
-        rule.prepare(column_data)
+    for cid, colnames in clusters.items():
+        applicable_rules = []
 
-    for idx, val in enumerate(column_data):
-        if not rule.validate_cell(val):
-            errors.append({
-                "column": column_name,
-                "row_index": idx,
-                "value": val,
-                "rule": rule.name,
-                "reason": rule.description
-            })
+        for rule in rules:
+            sample_column = getattr(rule, "sample_column", None)
 
-    return errors
+            #print(sample_column)
+            if not sample_column or sample_column not in colnames:
+                continue
+            applicable_rules.append(rule.name)
+            #print("test")
+            #print(rule.name)
 
+        shared_rules[cid] = applicable_rules
 
-def run_cell_level_checks(rule, cluster_columns, dataset):
-    """
-    dataset: dict[column_name] -> list of values
-    """
-    all_errors = []
-    for col_name in cluster_columns:
-        if col_name in dataset:
-            col_data = dataset[col_name]
-            errors = detect_cell_errors(rule, col_name, col_data)
-            all_errors.extend(errors)
-    return all_errors
+    return shared_rules
+
 
 def detect_cell_errors_in_clusters(clusters, shared_rules, rules, raw_dataset):
     """
@@ -127,3 +120,131 @@ def detect_cell_errors_in_clusters(clusters, shared_rules, rules, raw_dataset):
                         })
 
     return errors
+
+def detect_error_cells(clusters, shared_rules, rules, column_data_lookup, table_name):
+    all_errors = []
+    rule_lookup = {rule.description: rule for rule in rules}
+
+    for cid, colnames in clusters.items():
+        applicable_rule_descriptions = shared_rules.get(cid, [])
+
+        for rule_desc in applicable_rule_descriptions:
+            rule = rule_lookup.get(rule_desc)
+            print(rule)
+            if not rule:
+                continue
+
+            for colname in colnames:
+                if colname not in column_data_lookup:
+                    continue
+
+                col_data = column_data_lookup[colname]
+                rule.prepare(col_data)  # if needed
+
+                error_indices = []
+                for idx, val in col_data.items():
+                    if not rule.validate_cell(val):
+                        error_indices.append(idx)
+
+                if error_indices:
+                    all_errors.append({
+                        "table": table_name,
+                        "cluster": cid,
+                        "column": colname,
+                        "rule": rule_desc,
+                        "error_indices": error_indices
+                    })
+
+    return all_errors
+
+
+def detect_error_cells_across_tables(clusters, shared_rules, rules, raw_dataset):
+    errors = []
+    rule_lookup = {rule.description: rule for rule in rules}
+
+    for cid, colnames in clusters.items():
+        applicable_rule_descriptions = shared_rules.get(cid, [])
+
+        for rule_desc in applicable_rule_descriptions:
+            rule = rule_lookup.get(rule_desc)
+            if not rule:
+                continue
+
+            for table_column in colnames:
+                # Split into table + column name
+                if "_" not in table_column:
+                    continue  # skip malformed names
+                table_name, column_name = table_column.split("_", 1)
+
+                df = raw_dataset.get(table_name)
+                if df is None or column_name not in df.columns:
+                    continue  # skip if data not found
+
+                column_data = df[column_name]
+
+                rule.prepare(column_data)  # optional if applicable
+
+                error_indices = [
+                    idx for idx, val in column_data.items()
+                    if not rule.validate_cell(val)
+                ]
+
+                if error_indices:
+                    errors.append({
+                        "table": table_name,
+                        "cluster": cid,
+                        "column": column_name,
+                        "rule": rule_desc,
+                        "error_indices": error_indices
+                    })
+
+    return errors
+
+def statistical_cell_detector(series):
+    errors = []
+    if series.dtype.kind in "biufc":  # numeric columns
+        mean, std = series.mean(), series.std()
+        for idx, val in series.items():
+            if not pandas.isna(val) and abs(val - mean) > 3 * std:
+                errors.append(idx)
+    elif series.dtype == 'object':
+        freq = series.value_counts(normalize=True)
+        low_freq_values = set(freq[freq < 0.01].index)
+        for idx, val in series.items():
+            if val in low_freq_values:
+                errors.append(idx)
+    return errors
+
+def detect_combined_errors(clusters, shared_rules, rules, raw_dataset):
+    errors = []
+    rule_lookup = {rule.name: rule for rule in rules}
+
+    for cid, colnames in clusters.items():
+        for colname in colnames:
+            table, column = colname.split("_", 1)
+            df = raw_dataset.get(table)
+            if df is None or column not in df.columns:
+                continue
+            series = df[column]
+            col_errors = set()
+
+            # Rule-based detection
+            for rule_name in shared_rules.get(cid, []):
+                rule = rule_lookup[rule_name]
+                rule.prepare(series)
+                col_errors.update(idx for idx, val in series.items() if not rule.validate_cell(val))
+
+            # Statistical detection
+            stat_errors = statistical_cell_detector(series)
+            col_errors.update(stat_errors)
+
+            if col_errors:
+                errors.append({
+                    "table": table,
+                    "cluster": cid,
+                    "column": column,
+                    "error_indices": sorted(list(col_errors))
+                })
+    return errors
+
+

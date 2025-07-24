@@ -75,7 +75,7 @@ def cluster_columns(columns, eps=0.5, min_samples=5,plot_eps=False):
     for cluster_id, vectors in cluster_vectors.items():
         center = np.mean(vectors, axis=0)
         center_named = dict(zip(feature_keys, center))
-        print(f"Cluster {cluster_id}:")
+        #print(f"Cluster {cluster_id}:")
         #for k, v in center_named.items():
         #    print(f"  {k}: {v:.4f}")
         print()

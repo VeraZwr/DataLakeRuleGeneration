@@ -34,7 +34,7 @@ class REDS:
         self.colname_transformer = ColumnNameFeature(category_prototypes=COLUMN_CATEGORY_PROTOTYPES)
         self.colname_transformer.fit()
         self.dtype_transformer = DataTypeFeatures()
-        self.file_name = "305b_Assessed_Lake_2020"
+        self.file_name = "rayyan"
         args = argparse.Namespace()
         args.model = "viznet"
         self.doduo = Doduo(args)
@@ -277,7 +277,7 @@ class REDS:
 
 
         return {
-            "column_name": column_name,
+            "column_name": self.file_name +"_"+column_name,
             "row_num": row_num,
             "null_ratio": null_ratio,
             "distinct_num": distinct_num,
