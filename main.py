@@ -10,7 +10,7 @@ from utils.file_io import load_pickle, csv_to_column_dict
 import pandas as pd
 import json
 import numpy as np
-from utils.metrics import compute_cell_level_scores, compute_actual_errors
+from utils.metrics import compute_cell_level_scores, compute_actual_errors, evaluate_one_dataset_only
 from rules.cluster_matcher import ClusterBasedColumnMatcher
 from rules.train_clean_rules import train_clean_rules
 from rules.dictionary_rule import SIMPLE_RULE_PROFILES
@@ -141,6 +141,8 @@ def main():
 
         # Step 5: Detect error cells
         errors = detect_combined_errors(clusters, shared_rules, rules, raw_dataset)
+        evaluate_one_dataset_only(rules, shared_rules, clusters)
+
         for err in errors:
             table = err['table']
             column = err['column']
@@ -183,6 +185,7 @@ def main():
     print(f"Precision: {precision:.3f}")
     print(f"Recall:    {recall:.3f}")
     print(f"F1 Score:  {f1:.3f}")
+
 
 
 if __name__ == "__main__":
