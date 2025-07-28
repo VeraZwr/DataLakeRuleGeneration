@@ -1,9 +1,8 @@
 import os
 import pickle
 from matplotlib import pyplot as plt
-from sklearn.decomposition import PCA
 from rules.loader import load_all_rules, load_rules_from_yaml
-from rules.evaluation import get_shared_rules_per_cluster, detect_cell_errors_in_clusters, get_shared_rules_per_cluster_with_sample_cloumn, detect_error_cells, detect_error_cells_across_tables, detect_combined_errors
+from rules.evaluation import get_shared_rules_per_cluster, detect_cell_errors_in_clusters, get_shared_rules_per_cluster_with_sample_cloumn, detect_error_cells, detect_error_cells_across_tables, detect_combined_errors, detect_dynamic_errors
 from utils.clustering import cluster_columns
 from pathlib import Path
 from utils.file_io import load_pickle, csv_to_column_dict
@@ -28,6 +27,12 @@ class NumpyEncoder(json.JSONEncoder):
             return obj.tolist()
         return super().default(obj)
 
+def get_column_profile_by_name(name, profiles):
+    for col in profiles:
+        if col["column_name"] == name:
+            return col
+    return None
+
 
 # --- Main execution ---
 def main():
@@ -47,6 +52,11 @@ def main():
     base_path = Path("results")
     datasets_column_profile = []
     dataset_names = []
+    #single table
+    datasets_column_profile.append(str(base_path / "flights/column_profile.dictionary"))
+    dataset_names.append(base_path / "flights")
+    # all dataset
+    '''
     for dataset_folder in os.listdir(base_path):
         dataset_path = base_path / dataset_folder
         if dataset_path.is_dir():  # Only consider directories
@@ -55,6 +65,7 @@ def main():
             if column_profile_path.exists():  # Ensure the column profile file exists
                 datasets_column_profile.append(str(column_profile_path))
                 dataset_names.append(dataset_folder)  # Use the directory name as the dataset name
+                '''
     column_profiles = []
     for path, dataset_name in zip(datasets_column_profile, dataset_names):
         dataset_column_profiles = load_pickle(path)
@@ -78,7 +89,7 @@ def main():
     #clusters = cluster_columns(column_profiles, n_clusters=5) #kMeans
     #clusters = cluster_columns(column_profiles, eps=0.3, min_samples=5, plot_eps=False)
     for eps in [0.5]:
-        clusters = cluster_columns(column_profiles, eps=eps, min_samples=5, plot_eps=False)
+        clusters = cluster_columns(column_profiles, eps=eps, min_samples=2, plot_eps=False)
         print(f"eps={eps} => {len(clusters)} clusters")
         clustered_columns_with_dataset = {}
         clustered_features = {}
@@ -87,10 +98,10 @@ def main():
             clustered_columns_with_dataset[cid] = [
                 f"{col['dataset_name']}_{col['column_name']}" for col in column_profiles if col['column_name'] in colnames
             ]
-        # Build feature dicts for this cluster
-        clustered_features[cid] = [
-            col for col in column_profiles if col['column_name'] in colnames
-        ]
+            # Build feature dicts for this cluster
+            clustered_features[cid] = [
+                col for col in column_profiles if col['column_name'] in colnames
+            ]
         for cid, colnames in clusters.items(): # without table name
         #for cid, colnames in clustered_columns_with_dataset.items():
             print(f"  Cluster {cid}: {colnames}")
@@ -117,46 +128,23 @@ def main():
 
         for cid, rulelist in shared_rules.items():
             print(f"Cluster {cid} shares rules: {rulelist}")
-
-        #for cid, rule_names in shared.items():
-        #    for rule in rules:
-        #        if rule.name not in rule_names:
-        #            continue
-        #        for colname in clusters[cid]:
-        #            col = col_lookup[colname]
-        #            if not rule.applies(col):
-        #                print(f"Violation: Rule '{rule.name}' does not hold for column '{colname}' (Cluster {cid})")
-        # Load raw data
-        # raw_dataset = csv_to_column_dict("datasets/Quintet/hospital/dirty.csv")
-        # errors = detect_error_cells(clusters, shared_rules, rules, raw_dataset, table_name="hospital")
-
+#------------------
+#-----------------
         # Step 4: Load raw datasets per table
         raw_dataset = {}
         datasets_path = Path("datasets/Quintet")
         for dataset in dataset_names:
-            raw_csv = datasets_path / dataset / "dirty.csv"
+            #raw_csv = datasets_path / dataset / "dirty.csv"
+            raw_csv = datasets_path / "flights/dirty.csv"
             if raw_csv.exists():
                 raw_dataset[dataset] = pd.read_csv(raw_csv) # need to read string, both are null -> correct: raha, how to compare
                 # print(f"detect errors in dataset {raw_csv}")
 
         # Step 5: Detect error cells
-        errors = detect_combined_errors(clusters, shared_rules, rules, raw_dataset)
-        evaluate_one_dataset_only(rules, shared_rules, clusters)
+        #errors = detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_profiles)
+        evaluate_one_dataset_only(rules, shared_rules, clusters, column_profiles)
 
-        for err in errors:
-            table = err['table']
-            column = err['column']
-            indices = err['error_indices']
-            err_count = len(indices)
 
-            df = raw_dataset[table]
-            cell_values = [df.loc[idx, column] for idx in indices]
-
-            print(f"\nTable: {table} | Column: {column} | Error number: {err_count}")
-            print("Row Index | Cell Value")
-            #for idx, val in zip(indices, cell_values):
-            #    print(f"{idx+1} | {val}")
-        print("\nTotal Error Cases:", len(errors))
    # df = pd.DataFrame(all_cell_errors)
     #df.to_csv("results/hospital/cell_errors.csv", index=False)
 
@@ -180,11 +168,7 @@ def main():
     print(f"\n Total Ground Truth Error Cells: {sum(len(v) for v in actual_errors_by_column.values())}")
 
     # Compute metrics
-    precision, recall, f1 = compute_cell_level_scores(errors, raw_dataset, clean_dataset_dict)
-    print(f"\nEvaluation Metrics:")
-    print(f"Precision: {precision:.3f}")
-    print(f"Recall:    {recall:.3f}")
-    print(f"F1 Score:  {f1:.3f}")
+
 
 
 

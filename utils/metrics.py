@@ -1,5 +1,5 @@
 from sklearn.metrics import precision_score, recall_score, f1_score
-from rules.evaluation import detect_combined_errors
+from rules.evaluation import detect_combined_errors, detect_dynamic_errors
 from utils.file_io import csv_to_column_dict
 from pathlib import Path
 import pandas as pd
@@ -72,8 +72,8 @@ def compute_actual_errors(clean_dataset_dict, dirty_dataset_dict):
     return actual_errors_by_column
 
 
-def evaluate_one_dataset_only(rules, shared_rules, clusters):
-    dataset_name = "beers"
+def evaluate_one_dataset_only(rules, shared_rules, clusters, column_profiles):
+    dataset_name = "flights"
     dataset_path = Path("datasets/Quintet") / dataset_name
 
     # Load dirty and clean data
@@ -84,8 +84,8 @@ def evaluate_one_dataset_only(rules, shared_rules, clusters):
     clean_dataset_dict = {dataset_name: clean_df}
 
     # Detect errors using the combined approach
-    print("\n Detecting errors for hospital...")
-    errors = detect_combined_errors(clusters, shared_rules, rules, raw_dataset)
+    print(f"\n Detecting errors for {dataset_name}...")
+    errors = detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_profiles)
 
     # Print out error counts and values
     for err in errors:

@@ -1,6 +1,6 @@
 # rules/evaluation.py
-import pandas
-
+import pandas as pd
+import re
 
 def detect_rule_violations(rule, cluster_columns, column_profiles):
     violations = []
@@ -68,24 +68,37 @@ def get_shared_rules_per_cluster(rules, column_profiles, clusters, threshold=0.7
 
 def get_shared_rules_per_cluster_with_sample_cloumn(rules, column_profiles, clusters):
     shared_rules = {}
-    col_lookup = {col['column_name']: col for col in column_profiles}
 
     for cid, colnames in clusters.items():
+        cluster_colnames = set(colnames)
         applicable_rules = []
 
         for rule in rules:
-            sample_column = getattr(rule, "sample_column", None)
+            sample_columns = getattr(rule, "sample_column", [])
 
-            #print(sample_column)
-            if not sample_column or sample_column not in colnames:
-                continue
-            applicable_rules.append(rule.name)
-            #print("test")
-            #print(rule.name)
+            # Normalize to list of strings
+            if isinstance(sample_columns, str):
+                sample_columns = [sample_columns]
+            elif isinstance(sample_columns, list):
+                # Flatten any nested lists
+                flattened = []
+                for item in sample_columns:
+                    if isinstance(item, list):
+                        flattened.extend(item)
+                    else:
+                        flattened.append(item)
+                sample_columns = flattened
+            else:
+                sample_columns = []
+
+            # Now sample_columns is a list of strings
+            if any(col in cluster_colnames for col in sample_columns):
+                applicable_rules.append(rule.name)
 
         shared_rules[cid] = applicable_rules
 
     return shared_rules
+
 
 
 def detect_cell_errors_in_clusters(clusters, shared_rules, rules, raw_dataset):
@@ -215,12 +228,14 @@ def statistical_cell_detector(series):
                 errors.append(idx)
     return errors
 
-def detect_combined_errors(clusters, shared_rules, rules, raw_dataset):
+def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_profiles=None):
     errors = []
     rule_lookup = {rule.name: rule for rule in rules}
 
     for cid, colnames in clusters.items():
+        print(cid)
         for colname in colnames:
+            print(colname)
             table, column = colname.split("_", 1)
             df = raw_dataset.get(table)
             if df is None or column not in df.columns:
@@ -228,16 +243,76 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset):
             series = df[column]
             col_errors = set()
 
-            # Rule-based detection
+            # Get the profile for this column if available, for the dynamic rules
+            current_profile = None
+            if column_profiles:
+                for p in column_profiles:
+                    if p.get("column_name") == column and str(p.get("dataset_name")).endswith(table):
+                        current_profile = p
+                        break
+
             for rule_name in shared_rules.get(cid, []):
                 rule = rule_lookup[rule_name]
-                rule.prepare(series)
-                col_errors.update(idx for idx, val in series.items() if not rule.validate_cell(val))
 
-            # Statistical detection
-            stat_errors = statistical_cell_detector(series)
-            col_errors.update(stat_errors)
+                # Determine if rule has built-in conditions or needs dynamic profile-based setup
+                #use_dynamic_profile = rule.name == "matches_regex" and not hasattr(rule, "conditions")
+                #print(rule.name + " - " + str(rule.conditions))
+                # Prepare the rule using profile when needed
+                #if use_dynamic_profile and current_profile:
+                #    rule.prepare(series, sample_column_profile=current_profile)
+                #else:
+                #    try:
+                #        rule.prepare(series)
+                #    except TypeError:
+                #        rule.prepare(series, sample_column_profile=current_profile)
 
+
+                # --- Special case for "is_not_nullable" ---
+                if rule.name == "is_not_nullable":
+                    null_errors = series[series.isna()].index
+                    col_errors.update(null_errors)
+                else:
+                    if rule.name == "matches_regex":
+                        # Try to use dominant_pattern from rule
+                        dominant_pattern = None
+                        # Look into rule.conditions for dominant_pattern
+                        # --- Case 1: Standard flat conditions ---
+                        if hasattr(rule, "conditions") and "dominant_pattern" in rule.conditions:
+                            dominant_pattern = rule.conditions["dominant_pattern"]
+                            print("Found dominant_pattern in flat conditions:", dominant_pattern)
+
+                        # --- Case 2: Multiple entries ---
+                        elif hasattr(rule, "sample_column") and isinstance(rule.sample_column, list):
+                            # Loop over entries to find matching sample_column
+                            for entry in rule["matches_regex"]["entries"]:
+                                if colname in entry.get("sample_column", []):
+                                    dominant_pattern = entry["conditions"].get("dominant_pattern")
+                                    print("Found dominant_pattern in entries for column", colname, ":",
+                                          dominant_pattern)
+                                    break
+
+                        # --- Case 3: Fallback to column profile ---
+                        if not dominant_pattern and current_profile and current_profile.get("dominant_pattern"):
+                            dominant_pattern = current_profile["dominant_pattern"]
+                            print(f"Found dominant_pattern from column profile for {column}: {dominant_pattern}")
+
+                        # --- Case 4: Infer from dataset if still not found ---
+                        if not dominant_pattern:
+                            non_null_values = [v for v in series if pd.notna(v)]
+                            if non_null_values:
+                                dominant_pattern = rule.regex_pattern_category(str(non_null_values[0]))
+                                print(f"Inferred regex pattern for column {column}: {dominant_pattern}")
+
+                        # If found, compile it
+                        if dominant_pattern:
+                            rule.regex = re.compile(dominant_pattern)
+                            for idx, val in series.items():
+                                if pd.notna(val):
+                                    pattern_view = rule.regex_pattern_category(str(val))
+                                if pd.notna(val) and not rule.regex.fullmatch(str(val).strip()):
+                                    #print(f"[DEBUG] Cell does not match pattern | "
+                                    #      f"Column: {column} | Index: {idx} | Value: {val} | Pattern: {pattern_view}")
+                                    col_errors.add(idx)
             if col_errors:
                 errors.append({
                     "table": table,
@@ -246,5 +321,91 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset):
                     "error_indices": sorted(list(col_errors))
                 })
     return errors
+
+def get_column_profile_by_name(name, profiles):
+    for col in profiles:
+        if col["column_name"] == name:
+            return col
+    return None
+
+
+# method 1: use the new column dominant patter - assume the majority data are correct data
+# for feature in rule.used_features:
+#    print(feature)
+#    print(col_profile[feature])
+
+# method 2: static rules - use user set up parameter
+def detect_dynamic_errors(clusters, shared_rules, rules, raw_dataset, column_profiles):
+    import pandas as pd
+
+    errors = []
+    rule_lookup = {r.name: r for r in rules}
+
+    for cid, colnames in clusters.items():
+        cluster_has_sample = False  # Track if this cluster has any sample column for its rules
+
+        for rule_name in shared_rules.get(cid, []):
+            rule = rule_lookup.get(rule_name)
+            if not rule:
+                continue
+
+            # Check if this rule needs a sample column
+            if rule.name == "matches_regex":
+                for sample_col in getattr(rule, 'sample_column', []):
+                    if sample_col in colnames:
+                        cluster_has_sample = True
+                        break  # Found at least one sample column
+
+        # After checking all rules for this cluster
+        if not cluster_has_sample and any(
+            rule_lookup.get(rn) and rule_lookup[rn].name == "matches_regex"
+            for rn in shared_rules.get(cid, [])
+        ):
+            print(f"⚠️ Cluster '{cid}' has no sample column available "
+                  f"for its rules. Please specify a sample column for this cluster.")
+            continue  # Skip processing this cluster
+
+        # Continue with normal error detection
+        for rule_name in shared_rules.get(cid, []):
+            rule = rule_lookup.get(rule_name)
+            if not rule:
+                continue
+
+            for colname in colnames:
+                col_profile = get_column_profile_by_name(colname, column_profiles)
+                if not col_profile:
+                    continue
+
+                dataset = col_profile.get('dataset_name')
+                column = col_profile.get('column_name')
+
+                if dataset not in raw_dataset or column not in raw_dataset[dataset].columns:
+                    continue
+
+                series = raw_dataset[dataset][column]
+                sample_profile = None
+
+                if rule.name == "matches_regex":
+                    for sample_col in getattr(rule, 'sample_column', []):
+                        if sample_col in colnames:
+                            sample_profile = get_column_profile_by_name(sample_col, column_profiles)
+                            break
+
+                rule.prepare(series, sample_profile)
+
+                mask = series.apply(lambda val: rule.validate_cell(val))
+                invalid_indices = series.index[~mask].tolist()
+
+                if invalid_indices:
+                    errors.append({
+                        "table": dataset,
+                        "column": column,
+                        "error_indices": invalid_indices,
+                        "invalid_values": series.loc[invalid_indices].tolist()
+                    })
+
+    return errors
+
+
 
 
