@@ -2,6 +2,16 @@
 import pandas as pd
 import re
 
+def count_decimals(value):
+    """Count decimal places in a numeric value."""
+    try:
+        s = str(value)
+        if '.' in s:
+            return len(s.split('.')[1].rstrip('0'))  # remove trailing zeros
+        return 0
+    except Exception:
+        return 0
+
 def detect_rule_violations(rule, cluster_columns, column_profiles):
     violations = []
     for col in column_profiles:
@@ -218,7 +228,7 @@ def statistical_cell_detector(series):
     if series.dtype.kind in "biufc":  # numeric columns
         mean, std = series.mean(), series.std()
         for idx, val in series.items():
-            if not pandas.isna(val) and abs(val - mean) > 3 * std:
+            if not pd.isna(val) and abs(val - mean) > 3 * std:
                 errors.append(idx)
     elif series.dtype == 'object':
         freq = series.value_counts(normalize=True)
@@ -254,73 +264,120 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
             for rule_name in shared_rules.get(cid, []):
                 rule = rule_lookup[rule_name]
 
-                # Determine if rule has built-in conditions or needs dynamic profile-based setup
-                #use_dynamic_profile = rule.name == "matches_regex" and not hasattr(rule, "conditions")
-                #print(rule.name + " - " + str(rule.conditions))
-                # Prepare the rule using profile when needed
-                #if use_dynamic_profile and current_profile:
-                #    rule.prepare(series, sample_column_profile=current_profile)
-                #else:
-                #    try:
-                #        rule.prepare(series)
-                #    except TypeError:
-                #        rule.prepare(series, sample_column_profile=current_profile)
-
-
                 # --- Special case for "is_not_nullable" ---
                 if rule.name == "is_not_nullable":
                     null_errors = series[series.isna()].index
                     col_errors.update(null_errors)
                 else:
-                    if rule.name == "matches_regex":
-                        # Try to use dominant_pattern from rule
+                    if rule.name:
                         dominant_pattern = None
-                        # Look into rule.conditions for dominant_pattern
-                        # --- Case 1: Standard flat conditions ---
-                        if hasattr(rule, "conditions") and "dominant_pattern" in rule.conditions:
-                            dominant_pattern = rule.conditions["dominant_pattern"]
-                            print("Found dominant_pattern in flat conditions:", dominant_pattern)
+                        expected_data_type = None
+                        max_decimal = None
+
+                        # --- Case 1: Flat conditions ---
+                        if hasattr(rule, "conditions"):
+                            for feature in rule.features:
+                                if feature in rule.conditions:
+                                    condition_value = rule.conditions[feature]
+                                    print(f"[DEBUG] Found condition '{feature}' in flat conditions: {condition_value}")
+
+                                    # Decimal
+                                    if rule.name in ("decimal_precision"):  # Numeric or functional condition
+                                        # Ensure the column is numeric
+                                        max_decimal = condition_value
+                                        print(f"[DEBUG] Using decimal from condition '{feature}' | 'max_decimal' is {max_decimal}")
+
+                                    elif rule.name in ("matches_regex"):
+                                        dominant_pattern = condition_value
+                                        print(f"[DEBUG] Using pattern from condition '{feature}'")
+
+                                    # Data type checks
+                                    elif feature == "basic_data_type":
+                                        expected_data_type = condition_value
+                                        print(
+                                            f"[DEBUG] Expected data type '{expected_data_type}' for rule '{rule.name}'")
+
+                                    # Handle other numeric/callable conditions here
+                                    elif callable(condition_value):
+                                        for idx, val in series.items():
+                                            try:
+                                                if not condition_value(val):
+                                                    print(f"[DEBUG] ❌ Condition '{feature}' failed | "
+                                                          f"Column: {column} | Index: {idx} | Value: {val}")
+                                                    col_errors.add(idx)
+                                            except Exception as e:
+                                                print(f"[DEBUG] Error applying condition '{feature}': {e}")
+                                    else:
+                                        for idx, val in series.items():
+                                            if str(val) != str(condition_value):
+                                                print(f"[DEBUG] ❌ Exact match failed for '{feature}' | "
+                                                      f"Column: {column} | Index: {idx} | Value: {val}")
+                                                col_errors.add(idx)
 
                         # --- Case 2: Multiple entries ---
                         elif hasattr(rule, "sample_column") and isinstance(rule.sample_column, list):
-                            # Loop over entries to find matching sample_column
-                            for entry in rule["matches_regex"]["entries"]:
+                            for entry in shared_rules.get(rule.name, []):
                                 if colname in entry.get("sample_column", []):
-                                    dominant_pattern = entry["conditions"].get("dominant_pattern")
-                                    print("Found dominant_pattern in entries for column", colname, ":",
-                                          dominant_pattern)
-                                    break
+                                    for cond_key, cond_value in entry["conditions"].items():
+                                        print(
+                                            f"[DEBUG] Found condition '{cond_key}' in entries for {colname}: {cond_value}")
+                                        if cond_key.lower().endswith("pattern"):
+                                            dominant_pattern = cond_value
+                                        elif cond_key == "basic_data_type":
+                                            expected_data_type = cond_value
+                                        elif cond_key == "max_decimal":
+                                            max_decimal = cond_value
+                                            print(f"check{max_decimal}")
 
-                        # --- Case 3: Fallback to column profile ---
-                        if not dominant_pattern and current_profile and current_profile.get("dominant_pattern"):
-                            dominant_pattern = current_profile["dominant_pattern"]
-                            print(f"Found dominant_pattern from column profile for {column}: {dominant_pattern}")
+                        # --- Case 3: Column profile fallback ---
+                        #if not dominant_pattern and current_profile and current_profile.get("dominant_pattern"):
+                        #    dominant_pattern = current_profile["dominant_pattern"]
+                        #    print(f"Found dominant_pattern from column profile for {column}: {dominant_pattern}")
 
-                        # --- Case 4: Infer from dataset if still not found ---
-                        if not dominant_pattern:
+                        # --- Case 4: No rule provided in conditions ---
+                        if not hasattr(rule, "conditions"):
                             non_null_values = [v for v in series if pd.notna(v)]
                             if non_null_values:
-                                dominant_pattern = rule.regex_pattern_category(str(non_null_values[0]))
-                                print(f"Inferred regex pattern for column {column}: {dominant_pattern}")
+                                condition_value = rule.conditions(str(non_null_values[0]))
+                                print(f"Inferred feature condition for column {column}: {condition_value}")
 
-                        # If found, compile it
+                        # --- Apply regex checks ---
                         if dominant_pattern:
                             rule.regex = re.compile(dominant_pattern)
                             for idx, val in series.items():
                                 if pd.notna(val):
-                                    pattern_view = rule.regex_pattern_category(str(val))
-                                if pd.notna(val) and not rule.regex.fullmatch(str(val).strip()):
-                                    #print(f"[DEBUG] Cell does not match pattern | "
-                                    #      f"Column: {column} | Index: {idx} | Value: {val} | Pattern: {pattern_view}")
+                                    val_pattern = rule.regex_pattern_category(str(val))
+                                    if not rule.regex.fullmatch(val_pattern):
+                                        #print(f"[DEBUG] ❌ Pattern mismatch | Column: {column} | Index: {idx} | "
+                                        #      f"Value: {val} | Pattern Detected: {val_pattern}")
+                                        col_errors.add(idx)
+
+                        # --- Apply decimal_precision checks ---
+                        if max_decimal:
+                            numeric_series = pd.to_numeric(series, errors='coerce')
+                            for idx, val in numeric_series.items():
+                                original_val = series[idx]
+                                if pd.isna(val) and pd.notna(original_val):
+                                    #print(f"[DEBUG] ❌ Non-numeric value detected | Column: {column} | "
+                                    #      f"Index: {idx} | Value: {original_val}")
                                     col_errors.add(idx)
-            if col_errors:
-                errors.append({
-                    "table": table,
-                    "cluster": cid,
-                    "column": column,
-                    "error_indices": sorted(list(col_errors))
-                })
+                                else:
+                                    decimals = count_decimals(val)
+                                    if decimals > max_decimal:
+                                        #print(f"[DEBUG] ❌ Decimal precision failed | Column: {column} | "
+                                        #      f"Index: {idx} | Value: {val} | Decimals: {decimals}")
+                                        col_errors.add(idx)
+
+
+                if col_errors:
+                    errors.append({
+                        "table": table,
+                        "cluster": cid,
+                        "column": column,
+                        "error_indices": sorted(list(col_errors))
+                    })
     return errors
+
 
 def get_column_profile_by_name(name, profiles):
     for col in profiles:
@@ -336,8 +393,6 @@ def get_column_profile_by_name(name, profiles):
 
 # method 2: static rules - use user set up parameter
 def detect_dynamic_errors(clusters, shared_rules, rules, raw_dataset, column_profiles):
-    import pandas as pd
-
     errors = []
     rule_lookup = {r.name: r for r in rules}
 

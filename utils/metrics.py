@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 from collections import defaultdict
 
+
 def compute_cell_level_scores(errors, raw_dataset, clean_dataset_dict):
     predicted_errors = set()
     for err in errors:
@@ -39,16 +40,13 @@ def compute_cell_level_scores(errors, raw_dataset, clean_dataset_dict):
 
 
 def compute_actual_errors(clean_dataset_dict, dirty_dataset_dict):
-    from collections import defaultdict
     actual_errors_by_column = defaultdict(list)
 
     for table_name in clean_dataset_dict:
         clean_df = clean_dataset_dict[table_name]
-        dirty_df = dirty_dataset_dict.get(table_name)
-
-        if dirty_df is None:
+        if clean_df is None:
             continue
-
+        dirty_df = dirty_dataset_dict.get(table_name)
         clean_df = clean_df.reset_index(drop=True)
         dirty_df = dirty_df.reset_index(drop=True)
 
@@ -73,7 +71,7 @@ def compute_actual_errors(clean_dataset_dict, dirty_dataset_dict):
 
 
 def evaluate_one_dataset_only(rules, shared_rules, clusters, column_profiles):
-    dataset_name = "flights"
+    dataset_name = "beers"
     dataset_path = Path("datasets/Quintet") / dataset_name
 
     # Load dirty and clean data

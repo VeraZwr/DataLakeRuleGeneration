@@ -42,7 +42,7 @@ SIMPLE_RULE_PROFILES = {
         "conditions": {"null_ratio": lambda x: x > 0},
         "features": ["null_ratio"],
         "description": "Cannot contains null values",
-        "sample_column": ["beers_ibu", "305b_Assessed_Lake_2018_drinking_water_attainment_code"] # hospital only have empty value
+        "sample_column": ["305b_Assessed_Lake_2018_drinking_water_attainment_code"] # hospital only have empty value
     },
     "is_not_nullable": {
         "conditions": {"null_ratio": 0},
@@ -58,6 +58,65 @@ SIMPLE_RULE_PROFILES = {
         "sample_column": ["hospital_condition"]
     },
     #dynamic rule
+
+    "matches_regex": {
+        "description": "Column must match a regex pattern based on its domain",
+        "features": ["dominant_pattern"],
+        "entries": [
+            {
+                "sample_column": ["flights_sched_dep_time", "flights_act_dep_time"],
+                "conditions": {
+                    # "basic_data_type": "time_am_pm",
+                    # "semantic_domain": "duration",
+                    "dominant_pattern": r"^\d{1,2}:\d{2}\s[A-Za-z]\.[A-Za-z]\.$"
+                }
+            },
+            {
+                "sample_column": ["beers_ounces"],
+                "conditions": {
+                    "dominant_pattern": r"^\d{1,2}$"
+                }
+            },
+
+        #        {
+        #            "sample_column": ["hospital_state", "beers_state"],
+        #            "conditions": {
+        #                "basic_data_type": "string",
+        #                "semantic_domain": "state",
+        #                "dominant_pattern": r"^[A-Za-z]{2}$"
+        #            }
+        #        },
+        #        {
+        #            "sample_column": "hospital_zip",
+        #            "conditions": {
+        #                "basic_data_type": "integer",
+        #                "semantic_domain": "region",
+        #                "dominant_pattern": r"^\d{5}$"
+        #            }
+        #        },
+        #        {
+        #            "sample_column": "305b_Assessed_Lake_2018_id_three_zero_five_b",
+        #            "conditions": {
+        #                "basic_data_type": "string",
+        #                "semantic_domain": "code",
+        #                "dominant_pattern": r"^[A-Za-z][A-Za-z]\\d\\d\\d\\d\\-\\d\\d\\-\\d\\-[A-Za-z]\\d_\\d\\d$"
+        #            }
+        #        }
+           ]
+    },
+    # Merge with patterns
+    # "data_type_is": {
+    #    "description": "Column must be a certain data type",
+    #    "features": ["basic_data_type"],
+    #    "entries": [
+    #        {
+    #            "sample_column": ["beers_ounces"],
+    #            "conditions": {
+    #                "basic_data_type": "integer"
+    #            }
+    #        },
+    #    ]
+    #},
     "value_in_range": {
         "conditions": {
             "numeric_min_value": lambda x: x >= 0,
@@ -87,51 +146,14 @@ SIMPLE_RULE_PROFILES = {
     },
     "decimal_precision": {
         "conditions": {
-            "max_decimal": lambda x: x <= 3
+            "max_decimal": 3
         },
         "features": ["max_decimal"],
         "description": "Decimal places within acceptable precision",
         "sample_column": ["beers_abv"] #beers
     },
 
-    "matches_regex": {
-        "description": "Column must match a regex pattern based on its domain",
-        "features": ["dominant_pattern"],
-        "entries": [
-            {
-                "sample_column": ["flights_sched_dep_time","flights_act_dep_time"],
-                "conditions": {
-                    #"basic_data_type": "time_am_pm",
-                    #"semantic_domain": "duration",
-                    "dominant_pattern": r"^\d{1,2}:\d{2}\s[A-Za-z]\.[A-Za-z]\.$"
-                }
-            },]
-    #        {
-    #            "sample_column": "hospital_state",
-    #            "conditions": {
-    #                "basic_data_type": "string",
-    #                "semantic_domain": "state",
-    #                "dominant_pattern": r"^[A-Za-z]{2}$"
-    #            }
-    #        },
-    #        {
-    #            "sample_column": "hospital_zip",
-    #            "conditions": {
-    #                "basic_data_type": "integer",
-    #                "semantic_domain": "region",
-    #                "dominant_pattern": r"^\d{5}$"
-    #            }
-    #        },
-    #        {
-    #            "sample_column": "305b_Assessed_Lake_2018_id_three_zero_five_b",
-    #            "conditions": {
-    #                "basic_data_type": "string",
-    #                "semantic_domain": "code",
-    #                "dominant_pattern": r"^[A-Za-z][A-Za-z]\\d\\d\\d\\d\\-\\d\\d\\-\\d\\-[A-Za-z]\\d_\\d\\d$"
-    #            }
-    #        }
-    #    ]
-    },
+
     "name_format_quality_check": {
         "conditions": {
             "dominant_pattern": r"^[A-Z][a-z]+(\s[A-Z][a-z]+)*\s\([A-Z][a-z]+(?:/[A-Z][a-z]+)*\)$",
@@ -186,7 +208,7 @@ class DictionaryRule(BaseRule):
         self.name = name
         self.description = description
         self.conditions = conditions
-        self.used_features = features
+        self.features = features
         self.expected_value = None
         self.sample_column = sample_column
         self.regex = None

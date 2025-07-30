@@ -53,8 +53,8 @@ def main():
     datasets_column_profile = []
     dataset_names = []
     #single table
-    datasets_column_profile.append(str(base_path / "flights/column_profile.dictionary"))
-    dataset_names.append(base_path / "flights")
+    datasets_column_profile.append(str(base_path / "beers/column_profile.dictionary"))
+    dataset_names.append(base_path / "beers")
     # all dataset
     '''
     for dataset_folder in os.listdir(base_path):
@@ -89,7 +89,7 @@ def main():
     #clusters = cluster_columns(column_profiles, n_clusters=5) #kMeans
     #clusters = cluster_columns(column_profiles, eps=0.3, min_samples=5, plot_eps=False)
     for eps in [0.5]:
-        clusters = cluster_columns(column_profiles, eps=eps, min_samples=2, plot_eps=False)
+        clusters = cluster_columns(column_profiles, eps=eps, min_samples=1, plot_eps=False)
         print(f"eps={eps} => {len(clusters)} clusters")
         clustered_columns_with_dataset = {}
         clustered_features = {}
@@ -135,7 +135,7 @@ def main():
         datasets_path = Path("datasets/Quintet")
         for dataset in dataset_names:
             #raw_csv = datasets_path / dataset / "dirty.csv"
-            raw_csv = datasets_path / "flights/dirty.csv"
+            raw_csv = datasets_path / "beer/dirty.csv"
             if raw_csv.exists():
                 raw_dataset[dataset] = pd.read_csv(raw_csv) # need to read string, both are null -> correct: raha, how to compare
                 # print(f"detect errors in dataset {raw_csv}")
