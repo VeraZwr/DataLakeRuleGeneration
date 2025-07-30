@@ -1,6 +1,61 @@
 # rules/evaluation.py
 import pandas as pd
 import re
+import os
+import pandas as pd
+from uszipcode import SearchEngine
+
+# search = SearchEngine()
+cities_df = pd.read_csv("database_US/uscities.csv")  # file from simplemaps
+
+# Abbreviation mapping
+ABBREVIATIONS = {
+    r"\bst\b": "saint",
+    r"\bft\b": "fort",
+    r"\bmt\b": "mount",
+}
+
+def normalize_city(name):
+    name = str(name).lower().strip()
+
+    # Remove dots first
+    name = re.sub(r'\.', '', name)
+    name = re.sub(r'\s+', ' ', name)  # Collapse spaces
+
+    # Replace abbreviations
+    for abbr, full in ABBREVIATIONS.items():
+        name = re.sub(abbr, full, name)
+
+    return name
+def normalize_state(name):
+    """Normalize state input for comparison."""
+    name = str(name).strip()
+    name = re.sub(r'\.', '', name)  # Remove periods
+    return name
+cities_df["city_norm"] = cities_df["city"].apply(normalize_city)
+us_cities = set(cities_df["city_norm"])
+us_state_ids = set(cities_df["state_id"].str.upper())
+us_state_names = set(cities_df["state_name"].str.lower())
+def is_us_city(city_name):
+    return normalize_city(city_name) in us_cities
+
+
+def is_us_state(state_value):
+    """
+    Validate if the given state value is a valid US state
+    (matches abbreviation or full name).
+    """
+    state_value_norm = normalize_state(state_value)
+
+    # Check abbreviation (e.g., "FL")
+    if state_value_norm.upper() in us_state_ids:
+        return True
+
+    # Check full state name (e.g., "Florida")
+    if state_value_norm.lower() in us_state_names:
+        return True
+
+    return False
 
 def count_decimals(value):
     """Count decimal places in a numeric value."""
@@ -273,6 +328,7 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                         dominant_pattern = None
                         expected_data_type = None
                         max_decimal = None
+                        semantic_domain = None
 
                         # --- Case 1: Flat conditions ---
                         if hasattr(rule, "conditions"):
@@ -296,6 +352,11 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                                         expected_data_type = condition_value
                                         print(
                                             f"[DEBUG] Expected data type '{expected_data_type}' for rule '{rule.name}'")
+
+                                    elif feature == "semantic_domain":
+                                        semantic_domain = condition_value
+                                        print(
+                                            f"[DEBUG] Expected data type '{semantic_domain}' for rule '{rule.name}'")
 
                                     # Handle other numeric/callable conditions here
                                     elif callable(condition_value):
@@ -366,7 +427,17 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                                     if decimals > max_decimal:
                                         #print(f"[DEBUG] ❌ Decimal precision failed | Column: {column} | "
                                         #      f"Index: {idx} | Value: {val} | Decimals: {decimals}")
-                                        col_errors.add(idx)
+                                     col_errors.add(idx)
+
+                        if semantic_domain:
+                            for idx, val in series.items():
+                                #taking too long to use search.by_city
+                                if semantic_domain == "city" and not is_us_city(val):
+                                    col_errors.add(idx)
+                                    print(f"City should not be: {val}")
+                                elif semantic_domain == "state" and not is_us_state(val):
+                                    col_errors.add(idx)
+                                    print(f"State should not be: {val}")
 
 
                 if col_errors:

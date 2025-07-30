@@ -4,6 +4,7 @@ from utils.file_io import csv_to_column_dict
 from pathlib import Path
 import pandas as pd
 from collections import defaultdict
+from utils.read_data import read_csv
 
 
 def compute_cell_level_scores(errors, raw_dataset, clean_dataset_dict):
@@ -47,10 +48,13 @@ def compute_actual_errors(clean_dataset_dict, dirty_dataset_dict):
         if clean_df is None:
             continue
         dirty_df = dirty_dataset_dict.get(table_name)
+        if dirty_df is None:
+            continue
         clean_df = clean_df.reset_index(drop=True)
         dirty_df = dirty_df.reset_index(drop=True)
 
         # Find common columns
+        min_cols = min(clean_df.shape[1], dirty_df.shape[1])
         common_columns = set(clean_df.columns).intersection(dirty_df.columns)
 
         if clean_df.shape[0] != dirty_df.shape[0]:
@@ -58,14 +62,19 @@ def compute_actual_errors(clean_dataset_dict, dirty_dataset_dict):
             continue
 
         for row_idx in range(len(clean_df)):
-            for col in common_columns:
+            for col_idx in range(min_cols):
                 try:
-                    clean_val = str(clean_df.at[row_idx, col])
-                    dirty_val = str(dirty_df.at[row_idx, col])
+                    #print(f"COlUMN_test {dirty_df.columns[col_idx]}{row_idx}")
+                    clean_val = str(clean_df.iat[row_idx, col_idx])
+                    #print(clean_val)
+                    dirty_val = str(dirty_df.iat[row_idx, col_idx])
+                    #print(dirty_val)
                     if clean_val != dirty_val:
-                        actual_errors_by_column[(table_name, col)].append(row_idx)
+                        col_name_dirty = dirty_df.columns[col_idx]
+                        #print(f"Debug:  {col}")
+                        actual_errors_by_column[(table_name, col_name_dirty)].append(row_idx)
                 except Exception as e:
-                    print(f"Error comparing cell [{row_idx}, {col}] in table '{table_name}': {e}")
+                    print(f"Error comparing cell [{row_idx}, {col_name_dirty}] in table '{table_name}': {e}")
 
     return actual_errors_by_column
 
@@ -75,8 +84,8 @@ def evaluate_one_dataset_only(rules, shared_rules, clusters, column_profiles):
     dataset_path = Path("datasets/Quintet") / dataset_name
 
     # Load dirty and clean data
-    dirty_df = pd.read_csv(dataset_path / "dirty.csv")
-    clean_df = pd.read_csv(dataset_path / "clean.csv")
+    dirty_df = read_csv(dataset_path / "dirty.csv")
+    clean_df = read_csv(dataset_path / "clean.csv")
 
     raw_dataset = {dataset_name: dirty_df}
     clean_dataset_dict = {dataset_name: clean_df}

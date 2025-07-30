@@ -1,16 +1,14 @@
 import html
 import logging
 import re
-
 import numpy as np
 import pandas as pd
-
 
 def value_normalizer(value: str) -> str:
     """
     This method takes a value and minimally normalizes it. (Raha's value normalizer)
     """
-    if value is not np.NAN:
+    if value is not np.nan:
         value = html.unescape(value)
         value = re.sub("[\t\n ]+", " ", value, re.UNICODE)
         value = value.strip("\t\n ")

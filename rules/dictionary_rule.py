@@ -78,6 +78,8 @@ SIMPLE_RULE_PROFILES = {
                 }
             },
 
+
+
         #        {
         #            "sample_column": ["hospital_state", "beers_state"],
         #            "conditions": {
@@ -104,6 +106,19 @@ SIMPLE_RULE_PROFILES = {
         #        }
            ]
     },
+#semantic domain check
+    "is_city": {
+            "conditions": {"semantic_domain": "city"},
+            "features": ["semantic_domain"],
+            "description": "Is a valid city name",
+            "sample_column": ["beers_city"]
+        },
+    "is_state_id": {
+                "conditions": {"semantic_domain": "state"},
+                "features": ["semantic_domain"],
+                "description": "Is a valid state name",
+                "sample_column": ["beers_state"]
+            },
     # Merge with patterns
     # "data_type_is": {
     #    "description": "Column must be a certain data type",
