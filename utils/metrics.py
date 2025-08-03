@@ -6,37 +6,58 @@ import pandas as pd
 from collections import defaultdict
 from utils.read_data import read_csv
 
+def merge_errors(errors):
+    merged = defaultdict(set)
+    for err in errors:
+        merged[(err["table"], err["column"])].update(err["error_indices"])
+
+    return [
+        {"table": tbl, "column": col, "error_indices": sorted(list(indices))}
+        for (tbl, col), indices in merged.items()
+    ]
 
 def compute_cell_level_scores(errors, raw_dataset, clean_dataset_dict):
     predicted_errors = set()
-    for err in errors:
-        table = err['table']
-        column = err['column']
-        for row_idx in err['error_indices']:
-            predicted_errors.add((table, row_idx, column))
+    actual_errors = set()
 
-    # Build ground truth
-    ground_truth_errors = set()
-    for table, clean_df in clean_dataset_dict.items():
-        dirty_df = raw_dataset[table]
-        for col in clean_df.columns:
-            if col not in dirty_df.columns:
-                continue  # Skip if dirty data is missing this column
-            for idx in range(min(len(clean_df), len(dirty_df))):
-                clean_val = str(clean_df.at[idx, col])
-                dirty_val = str(dirty_df.at[idx, col])
-                if clean_val != dirty_val:
-                    ground_truth_errors.add((table, idx, col))
+    for table, dirty_df in raw_dataset.items():
+        clean_df = clean_dataset_dict[table]
 
-    # Construct binary vectors
-    all_cells = predicted_errors.union(ground_truth_errors)
-    y_true = [1 if cell in ground_truth_errors else 0 for cell in all_cells]
-    y_pred = [1 if cell in predicted_errors else 0 for cell in all_cells]
+        # Ensure same row count
+        dirty_df = dirty_df.reset_index(drop=True)
+        clean_df = clean_df.reset_index(drop=True)
 
-    precision = precision_score(y_true, y_pred)
-    recall = recall_score(y_true, y_pred)
-    f1 = f1_score(y_true, y_pred)
+        # Map column names in dirty_df to their index
+        col_index_map = {name: idx for idx, name in enumerate(dirty_df.columns)}
 
+        # --- Build predicted cells ---
+        for err in errors:
+            if err["table"] != table:
+                continue
+            for idx in err["error_indices"]:
+                col_idx = col_index_map.get(err["column"])
+                if col_idx is not None:
+                    predicted_errors.add((table, col_idx, idx))
+
+        # --- Build actual cells (dirty vs clean) ---
+        for col_idx in range(len(dirty_df.columns)):
+            dirty_col = dirty_df.iloc[:, col_idx]
+            clean_col = clean_df.iloc[:, col_idx]
+
+            diffs = dirty_col != clean_col
+            for idx in dirty_df[diffs].index:
+                actual_errors.add((table, col_idx, idx))
+
+    # --- Calculate metrics ---
+    TP = len(predicted_errors & actual_errors)
+    FP = len(predicted_errors - actual_errors)
+    FN = len(actual_errors - predicted_errors)
+
+    precision = TP / (TP + FP) if predicted_errors else 0
+    recall = TP / (TP + FN) if actual_errors else 0
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0
+
+    print(f"[DEBUG] Predicted errors: {len(predicted_errors)}, Actual errors: {len(actual_errors)}")
     return precision, recall, f1
 
 
@@ -79,10 +100,9 @@ def compute_actual_errors(clean_dataset_dict, dirty_dataset_dict):
     return actual_errors_by_column
 
 
-def evaluate_one_dataset_only(rules, shared_rules, clusters, column_profiles):
-    dataset_name = "beers"
-    dataset_path = Path("datasets/Quintet") / dataset_name
+def evaluate_one_dataset_only(rules, shared_rules, clusters, column_profiles, dataset_name):
 
+    dataset_path = Path("datasets/Quintet") / dataset_name
     # Load dirty and clean data
     dirty_df = read_csv(dataset_path / "dirty.csv")
     clean_df = read_csv(dataset_path / "clean.csv")
@@ -93,7 +113,7 @@ def evaluate_one_dataset_only(rules, shared_rules, clusters, column_profiles):
     # Detect errors using the combined approach
     print(f"\n Detecting errors for {dataset_name}...")
     errors = detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_profiles)
-
+    errors = merge_errors(errors)
     # Print out error counts and values
     for err in errors:
         if err['table'] == dataset_name:

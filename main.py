@@ -15,6 +15,8 @@ from rules.train_clean_rules import train_clean_rules
 from rules.dictionary_rule import SIMPLE_RULE_PROFILES
 from utils.rule_utils import serialize_trained_rules
 
+
+d_name = "hospital"
 class NumpyEncoder(json.JSONEncoder):
     """Custom encoder for NumPy types."""
 
@@ -53,8 +55,8 @@ def main():
     datasets_column_profile = []
     dataset_names = []
     #single table
-    datasets_column_profile.append(str(base_path / "beers/column_profile.dictionary"))
-    dataset_names.append(base_path / "beers")
+    datasets_column_profile.append(str(base_path / d_name/"column_profile.dictionary"))
+    dataset_names.append(base_path / d_name)
     # all dataset
     '''
     for dataset_folder in os.listdir(base_path):
@@ -135,14 +137,14 @@ def main():
         datasets_path = Path("datasets/Quintet")
         for dataset in dataset_names:
             #raw_csv = datasets_path / dataset / "dirty.csv"
-            raw_csv = datasets_path / "beer/dirty.csv"
+            raw_csv = datasets_path / d_name/"dirty.csv"
             if raw_csv.exists():
                 raw_dataset[dataset] = pd.read_csv(raw_csv) # need to read string, both are null -> correct: raha, how to compare
                 # print(f"detect errors in dataset {raw_csv}")
 
         # Step 5: Detect error cells
         #errors = detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_profiles)
-        evaluate_one_dataset_only(rules, shared_rules, clusters, column_profiles)
+        evaluate_one_dataset_only(rules, shared_rules, clusters, column_profiles,d_name)
 
 
    # df = pd.DataFrame(all_cell_errors)

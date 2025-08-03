@@ -3,17 +3,105 @@ import pandas as pd
 import re
 import os
 import pandas as pd
+from spellchecker import SpellChecker
 from uszipcode import SearchEngine
-
+import time
 # search = SearchEngine()
-cities_df = pd.read_csv("database_US/uscities.csv")  # file from simplemaps
+import spacy
+from spellchecker import SpellChecker
+
+import requests
+
+search_cache = {}  # Cache results to avoid repeated API calls
+valid_whitelist = set()     # Known valid names (found locally or online)
+error_cache = set()
+def exists_online_wikipedia(query):
+    """Check if the name exists on Wikipedia."""
+    query = query.lower().strip()
+
+    # Use cached result if available
+    if query in search_cache:
+        #print(f"[DEBUG] Cached Wikipedia result for: {query}")
+        return search_cache[query]
+
+    try:
+        response = requests.get(
+            "https://en.wikipedia.org/w/api.php",
+            params={
+                "action": "query",
+                "list": "search",
+                "srsearch": query,
+                "format": "json"
+            },
+            timeout=10
+        )
+        if response.status_code == 200:
+            data = response.json()
+            found = len(data.get("query", {}).get("search", [])) > 0
+            search_cache[query] = found
+            return found
+
+    except Exception as e:
+        print(f"[DEBUG] Wikipedia API error: {e}")
+
+    search_cache[query] = False
+    return False
 
 # Abbreviation mapping
 ABBREVIATIONS = {
     r"\bst\b": "saint",
     r"\bft\b": "fort",
-    r"\bmt\b": "mount",
+    r"\bmt\b": "mount"
 }
+
+def normalize_abbreviations(text):
+    text = text.lower()
+    text = re.sub(r"\bst\b", "saint", text)
+    text = re.sub(r"\bmt\b", "mount", text)
+    return text
+
+nlp = spacy.load("en_core_web_sm")
+spell = SpellChecker()
+
+def has_spelling_errors(val):
+    """Check spelling locally, then online, with caching."""
+    if not isinstance(val, str) or not val.strip():
+        return False
+
+    text = normalize_abbreviations(val)
+
+    # Check caches first
+    if text in valid_whitelist:
+        return False
+    if text in error_cache:
+        return True
+
+    # Local spell check
+    doc = nlp(text)
+    misspelled = [
+        token.text for token in doc
+        if token.ent_type_ not in ("PERSON", "ORG", "GPE", "FAC")
+        and token.text.lower() not in spell
+    ]
+    if not misspelled:
+        valid_whitelist.add(text)
+        return False
+
+    # Wikipedia check if misspelled
+    if exists_online_wikipedia(text):
+        valid_whitelist.add(text)
+        spell.word_frequency.add(text)
+        return False
+
+    # Mark as error
+    #print(f"[DEBUG] Spelling error detected for: {val}")
+    error_cache.add(text)
+    return True
+
+
+cities_df = pd.read_csv("database_US/uscities.csv")  # file from simplemaps
+
+
 
 def normalize_city(name):
     name = str(name).lower().strip()
@@ -32,10 +120,26 @@ def normalize_state(name):
     name = str(name).strip()
     name = re.sub(r'\.', '', name)  # Remove periods
     return name
+
+def normalize_county(name):
+    return str(name).lower().strip()
+
 cities_df["city_norm"] = cities_df["city"].apply(normalize_city)
+cities_df["county_norm"] = cities_df["county_name"].apply(normalize_county)
+
 us_cities = set(cities_df["city_norm"])
 us_state_ids = set(cities_df["state_id"].str.upper())
 us_state_names = set(cities_df["state_name"].str.lower())
+us_counties = set(cities_df["county_norm"])
+
+cities_df["zips"] = cities_df["zips"].fillna("").astype(str)
+us_zipcodes = set()
+for z in cities_df["zips"]:
+    if "," in z:  # multiple ZIPs in one cell
+        us_zipcodes.update([zip.strip() for zip in z.split(",")])
+    elif z:
+        us_zipcodes.add(z.strip())
+
 def is_us_city(city_name):
     return normalize_city(city_name) in us_cities
 
@@ -56,6 +160,34 @@ def is_us_state(state_value):
         return True
 
     return False
+
+def is_us_zip(zip_code):
+    """Validate if ZIP exists in US cities data."""
+    return str(zip_code).strip() in us_zipcodes
+
+def is_us_county(county_name):
+    return normalize_county(county_name) in us_counties
+
+
+def is_phone_column_by_name(column_name):
+    """Check if the column name suggests it's a phone number."""
+    return bool(re.search(r'(phone|mobile|contact|cell|fax|tel)', column_name, re.IGNORECASE))
+phone_pattern = re.compile(
+    r'^\+?1?\s*\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}$'
+)
+#def is_phone_column_by_content(series):
+#    """Check if a column's values look like phone numbers."""
+#    non_empty = series.dropna().astype(str)
+#    if non_empty.empty:
+#        return False
+
+#    match_ratio = non_empty.apply(lambda x: bool(phone_pattern.match(x))).mean()
+
+    # If >70% of rows match phone pattern, consider it a phone column
+#    return match_ratio > 0.7
+#def is_phone_column(column_name, series):
+#    return is_phone_column_by_name(column_name) or is_phone_column_by_content(series)
+
 
 def count_decimals(value):
     """Count decimal places in a numeric value."""
@@ -360,8 +492,26 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                                         print(
                                             f"[DEBUG] Expected data type '{semantic_domain}' for rule '{rule.name}'")
 
+
+
+                                    elif "spell_check" in rule.conditions:
+                                        col_errors = set()
+                                        for idx, val in series.items():
+                                            try:
+                                                # Use the unified checker (spell check + Wikipedia fallback)
+                                                if has_spelling_errors(val):
+                                                    #print(f"[DEBUG] ❌ Spelling error for '{val}' "
+                                                    #      f"| Column: {column} | Index: {idx}")
+                                                    col_errors.add(idx)
+                                                else:
+                                                    continue
+                                                    #print(f"[DEBUG] ✅ Spelling OK for '{val}'")
+                                            except Exception as e:
+                                                print(f"[DEBUG] Error during spell check for '{val}': {e}")
+
                                     # Handle other numeric/callable conditions here
                                     elif callable(condition_value):
+                                        col_errors = set()
                                         for idx, val in series.items():
                                             try:
                                                 if not condition_value(val):
@@ -371,6 +521,7 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                                             except Exception as e:
                                                 print(f"[DEBUG] Error applying condition '{feature}': {e}")
                                     else:
+                                        col_errors = set()
                                         for idx, val in series.items():
                                             if str(val) != str(condition_value):
                                                 #print(f"[DEBUG] ❌ Exact match failed for '{feature}' | "
@@ -406,16 +557,26 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
 
                         # --- Apply regex checks ---
                         if dominant_pattern:
+                            col_errors = set()
                             rule.regex = re.compile(dominant_pattern)
                             for idx, val in series.items():
                                 if pd.notna(val):
                                     val_str = str(val).strip()
-                                    if not rule.regex.fullmatch(val_str):  # match directly
-                                        #print(f"[DEBUG] ❌ '{val_str}' does not match {dominant_pattern}")
-                                        col_errors.add(idx)
+
+                                    # --- Phone handling ---
+                                    if is_phone_column_by_name(series.name.lower()):  # Column name check
+                                        if not phone_pattern.fullmatch(val_str):
+                                            col_errors.add(idx)
+                                            # print(f"[DEBUG] ❌ '{val_str}' is not a valid phone number")
+                                    else:
+                                        # Regular pattern check
+                                        if not rule.regex.fullmatch(val_str):
+                                            col_errors.add(idx)
+                                            # print(f"[DEBUG] ❌ '{val_str}' does not match {dominant_pattern}")
 
                         # --- Apply decimal_precision checks ---
                         if max_decimal:
+                            col_errors = set()
                             numeric_series = pd.to_numeric(series, errors='coerce')
                             for idx, val in numeric_series.items():
                                 original_val = series[idx]
@@ -431,6 +592,7 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                                      col_errors.add(idx)
 
                         if semantic_domain:
+                            col_errors = set()
                             for idx, val in series.items():
                                 #taking too long to use search.by_city
                                 if semantic_domain == "city" and not is_us_city(val):
@@ -439,15 +601,31 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                                 elif semantic_domain == "state" and not is_us_state(val):
                                     col_errors.add(idx)
                                     #print(f"State should not be: {val}")
-
+                                elif semantic_domain == "region" and not is_us_zip(val):
+                                    col_errors.add(idx)
+                                # print(f"Zip should not be: {val}")
+                                elif semantic_domain == "county" and not is_us_county(val):
+                                    col_errors.add(idx)
+                                # print(f"County should not be: {val}")
 
                 if col_errors:
-                    errors.append({
-                        "table": table,
-                        "cluster": cid,
-                        "column": column,
-                        "error_indices": sorted(list(col_errors))
-                    })
+                    total_rows = len(series)  # total rows in this column
+
+                    # Skip if all rows are flagged
+                    # if flag every row as an error, then the rule is usually not very useful (too generic or specific)
+                    # the column is also potentially in a wrong cluster
+
+                    if len(col_errors) >= total_rows:
+                        print(f"[DEBUG] Skipping rule '{rule.name}' for column '{column}' "
+                              f"in table '{table}' (flagged all {total_rows} rows).")
+                        col_errors.clear()   # Ignore this rule for this column
+                    if col_errors:
+                        errors.append({
+                            "table": table,
+                            "cluster": cid,
+                            "column": column,
+                            "error_indices": sorted(list(col_errors))
+                        })
     return errors
 
 

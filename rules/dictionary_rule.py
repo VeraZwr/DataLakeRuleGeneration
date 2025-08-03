@@ -1,15 +1,7 @@
 from rules.base_rule import BaseRule
-from spellchecker import SpellChecker
 import pandas as pd
 import re
-spell = SpellChecker()
-
-def has_spelling_errors(value):
-    words = value.split()
-    misspelled = spell.unknown(words)
-    return len(misspelled) > 0
-
-
+from rules.evaluation import has_spelling_errors
 
 
 # Rule profiles: include conditions + features used
@@ -19,43 +11,38 @@ SIMPLE_RULE_PROFILES = {
         "conditions": {"unique_ratio": 1.0, "null_ratio": 0.0, "semantic_domain": "rank", "basic_data_type": "integer"},
         "features": ["unique_ratio", "null_ratio", "basic_data_type", "semantic_domain"],
         "description": "All values are unique and non-null",
-        "sample_column": ["hospital_index", "305b_Assessed_Lake_2018_objectid(long)"]
+        "sample_column": ["305b_Assessed_Lake_2018_objectid(long)"]
     },
     "is_single_value": {
         "conditions": {"distinct_num": 1.0},
         "features": ["distinct_num"],
         "description": "Only one distinct value",
-        "sample_column": ["hospital_type", "305b_Assessed_Lake_2018_cyclevalue(long)", "305b_Assessed_Lake_2018_sizeunit", "305b_Assessed_Lake_2018_watertype","305b_Assessed_Lake_2018_drinking_water_attainment_code"]
+        "sample_column": ["305b_Assessed_Lake_2018_cyclevalue(long)", "305b_Assessed_Lake_2018_sizeunit", "305b_Assessed_Lake_2018_watertype","305b_Assessed_Lake_2018_drinking_water_attainment_code"]
     },
-    #"is_primary_key": {
-    #    "conditions": {"unique_ratio": 1.0, "null_ratio": 0.0},
-    #    "features": ["unique_ratio", "null_ratio"],
-    #    "description": "Column is a primary key (unique & non-null)"
-    #},
+
     "is_unique": {
         "conditions": {"unique_ratio": 1.0},
         "features": ["unique_ratio"],
         "description": "All values are unique",
-        "sample_column": ["hospital_index", "305b_Assessed_Lake_2018_objectid(long)"]
+        "sample_column": ["305b_Assessed_Lake_2018_objectid(long)"]
     },
     "is_nullable": {
         "conditions": {"null_ratio": lambda x: x > 0},
         "features": ["null_ratio"],
         "description": "Cannot contains null values",
-        "sample_column": ["305b_Assessed_Lake_2018_drinking_water_attainment_code"] # hospital only have empty value
+        "sample_column": ["305b_Assessed_Lake_2018_drinking_water_attainment_code"]
     },
     "is_not_nullable": {
         "conditions": {"null_ratio": 0},
         "features": ["null_ratio"],
         "description": "Contains null values",
         "sample_column": ["flights_sched_dep_time","flights_act_dep_time", "305b_Assessed_Lake_2018_aquatic_life_attainment_code", "305b_Assessed_Lake_2018_objectid(long)"]
-        # hospital only have empty value
     },
     "has_low_cardinality": {
         "conditions": {"unique_ratio": lambda x: x < 0.1},
         "features": ["unique_ratio"],
         "description": "Low cardinality (distinct values < 10%)",
-        "sample_column": ["hospital_condition"]
+        "sample_column": [""]
     },
     #dynamic rule
 
@@ -83,6 +70,20 @@ SIMPLE_RULE_PROFILES = {
                     "dominant_pattern": r"^\d{1,3}$"
                 }
             },
+    "matches_regex_provider_number": {
+        "sample_column": ["hospital_provider_number"],
+        "features": ["dominant_pattern"],
+        "conditions": {
+            "dominant_pattern": r"^\d{5}$"
+        }
+    },
+    "matches_regex_phone": {
+            "sample_column": ["hospital_phone"],
+            "features": ["dominant_pattern"],
+            "conditions": {
+                "dominant_pattern": r"^\d{9}$"
+            }
+        },
 
 
         #        {
@@ -114,14 +115,20 @@ SIMPLE_RULE_PROFILES = {
             "conditions": {"semantic_domain": "city"},
             "features": ["semantic_domain"],
             "description": "Is a valid city name",
-            "sample_column": ["beers_city"]
+            "sample_column": ["beers_city", "hospital_city"]
         },
     "is_state_id": {
                 "conditions": {"semantic_domain": "state"},
                 "features": ["semantic_domain"],
                 "description": "Is a valid state name",
-                "sample_column": ["beers_state"]
-            },
+                "sample_column": ["beers_state", "hospital_state"]
+                },
+    "is_zip": {
+                    "conditions": {"semantic_domain": "region"},
+                    "features": ["semantic_domain"],
+                    "description": "Is a valid zip code",
+                    "sample_column": ["hospital_zip"]
+                },
     # Merge with patterns
     # "data_type_is": {
     #    "description": "Column must be a certain data type",
@@ -187,10 +194,8 @@ SIMPLE_RULE_PROFILES = {
         },
         "features": ["spell_check"],
         "description": "No spelling errors in the value",
-        "sample_column": ["305b_Assessed_Lake_2018_locationvalue", "305b_Assessed_Lake_2018_watertype", "305b_Assessed_Lake_2018_classname","305b_Assessed_Lake_2018_fish_consumption_attainment", "305b_Assessed_Lake_2018_drinking_water_attainment"]
+        "sample_column": ["hospital_name","hospital_address_1""305b_Assessed_Lake_2018_locationvalue", "305b_Assessed_Lake_2018_watertype", "305b_Assessed_Lake_2018_classname","305b_Assessed_Lake_2018_fish_consumption_attainment", "305b_Assessed_Lake_2018_drinking_water_attainment"]
     },
-
-
 
     #"benford_conformity": {
     #    "conditions": {"first_digit_distribution": "benford_distribution"},
@@ -203,6 +208,11 @@ SIMPLE_RULE_PROFILES = {
     #    "features": ["semantic_domain"],
     #    "description": "Semantic class matches expected class"
     #},
+    # "is_primary_key": {
+    #    "conditions": {"unique_ratio": 1.0, "null_ratio": 0.0},
+    #    "features": ["unique_ratio", "null_ratio"],
+    #    "description": "Column is a primary key (unique & non-null)"
+    # },
     "top_key_words_boolean": {
         "conditions": {"basic_data_type": "boolean", "semantic_domain":"status", "top_keywords": {"yes", "no", "Yes", "No"}},
         "features": ["basic_data_type", "semantic_domain"],
@@ -360,3 +370,4 @@ def load_dictionary_rules():
                 sample_column=profile.get("sample_column", "")
             ))
     return rules
+
