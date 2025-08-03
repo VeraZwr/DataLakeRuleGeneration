@@ -28,18 +28,22 @@ def read_csv(path: str, low_memory: bool = False, data_type: str = 'default') ->
     """
     logging.info("Reading table, name: %s", path)
 
-    if data_type == 'default':
-        return (
-            pd.read_csv(
-                path, sep=",", header="infer", low_memory=low_memory, encoding="latin-1"
-            )
-            .applymap(lambda x: value_normalizer(x) if isinstance(x, str) else x)
+    common_args = dict(
+        sep=",",
+        header="infer",
+        low_memory=low_memory,
+        encoding="latin-1",
+        keep_default_na=False,  # Disable automatic NA parsing
+        na_values=[]  # Prevent "N/A" being interpreted as NaN
+    )
 
-        )
+    if data_type == 'default':
+        df = pd.read_csv(path, **common_args)
     elif data_type == 'str':
-        return (
-            pd.read_csv(
-                path, sep=",", header="infer", low_memory=low_memory, encoding="latin-1", dtype=str, keep_default_na=False
-            )
-            .applymap(lambda x: value_normalizer(x) if isinstance(x, str) else x)
-        )
+        df = pd.read_csv(path, dtype=str, **common_args)
+
+    # Normalize string values
+    for col in df.select_dtypes(include=["object", "string"]).columns:
+        df[col] = df[col].map(lambda x: value_normalizer(x) if isinstance(x, str) else x)
+
+    return df

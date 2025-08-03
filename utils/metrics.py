@@ -71,7 +71,7 @@ def compute_actual_errors(clean_dataset_dict, dirty_dataset_dict):
                     #print(dirty_val)
                     if clean_val != dirty_val:
                         col_name_dirty = dirty_df.columns[col_idx]
-                        #print(f"Debug:  {col}")
+                        #print(f"Debug:  ")
                         actual_errors_by_column[(table_name, col_name_dirty)].append(row_idx)
                 except Exception as e:
                     print(f"Error comparing cell [{row_idx}, {col_name_dirty}] in table '{table_name}': {e}")

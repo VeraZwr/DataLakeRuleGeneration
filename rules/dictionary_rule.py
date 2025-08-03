@@ -48,7 +48,7 @@ SIMPLE_RULE_PROFILES = {
         "conditions": {"null_ratio": 0},
         "features": ["null_ratio"],
         "description": "Contains null values",
-        "sample_column": ["flights_sched_dep_time","flights_act_dep_time", "beers_ibu", "305b_Assessed_Lake_2018_aquatic_life_attainment_code", "305b_Assessed_Lake_2018_objectid(long)"]
+        "sample_column": ["flights_sched_dep_time","flights_act_dep_time", "305b_Assessed_Lake_2018_aquatic_life_attainment_code", "305b_Assessed_Lake_2018_objectid(long)"]
         # hospital only have empty value
     },
     "has_low_cardinality": {
@@ -59,25 +59,30 @@ SIMPLE_RULE_PROFILES = {
     },
     #dynamic rule
 
-    "matches_regex": {
+    "matches_regex_time": {
         "description": "Column must match a regex pattern based on its domain",
         "features": ["dominant_pattern"],
-        "entries": [
-            {
-                "sample_column": ["flights_sched_dep_time", "flights_act_dep_time"],
-                "conditions": {
+        "sample_column": ["flights_sched_dep_time", "flights_act_dep_time"],
+        "conditions": {
                     # "basic_data_type": "time_am_pm",
                     # "semantic_domain": "duration",
                     "dominant_pattern": r"^\d{1,2}:\d{2}\s[A-Za-z]\.[A-Za-z]\.$"
                 }
             },
-            {
+    "matches_regex_ounces":{
                 "sample_column": ["beers_ounces"],
+                "features": ["dominant_pattern"],
                 "conditions": {
                     "dominant_pattern": r"^\d{1,2}$"
                 }
             },
-
+    "matches_regex_ibu": {
+                "sample_column": ["beers_ibu"],
+                "features": ["dominant_pattern"],
+                "conditions": {
+                    "dominant_pattern": r"^\d{1,3}$"
+                }
+            },
 
 
         #        {
@@ -104,8 +109,6 @@ SIMPLE_RULE_PROFILES = {
         #                "dominant_pattern": r"^[A-Za-z][A-Za-z]\\d\\d\\d\\d\\-\\d\\d\\-\\d\\-[A-Za-z]\\d_\\d\\d$"
         #            }
         #        }
-           ]
-    },
 #semantic domain check
     "is_city": {
             "conditions": {"semantic_domain": "city"},

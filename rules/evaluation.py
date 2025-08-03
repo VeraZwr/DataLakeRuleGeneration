@@ -140,7 +140,6 @@ def get_shared_rules_per_cluster_with_sample_cloumn(rules, column_profiles, clus
 
         for rule in rules:
             sample_columns = getattr(rule, "sample_column", [])
-
             # Normalize to list of strings
             if isinstance(sample_columns, str):
                 sample_columns = [sample_columns]
@@ -159,6 +158,7 @@ def get_shared_rules_per_cluster_with_sample_cloumn(rules, column_profiles, clus
             # Now sample_columns is a list of strings
             if any(col in cluster_colnames for col in sample_columns):
                 applicable_rules.append(rule.name)
+                print(applicable_rules)
 
         shared_rules[cid] = applicable_rules
 
@@ -298,9 +298,7 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
     rule_lookup = {rule.name: rule for rule in rules}
 
     for cid, colnames in clusters.items():
-        print(cid)
         for colname in colnames:
-            print(colname)
             table, column = colname.split("_", 1)
             df = raw_dataset.get(table)
             if df is None or column not in df.columns:
@@ -325,6 +323,7 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                     col_errors.update(null_errors)
                 else:
                     if rule.name:
+                        print(rule_name)
                         dominant_pattern = None
                         expected_data_type = None
                         max_decimal = None
@@ -332,6 +331,8 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
 
                         # --- Case 1: Flat conditions ---
                         if hasattr(rule, "conditions"):
+                            #print("here__________" + rule.name)
+
                             for feature in rule.features:
                                 if feature in rule.conditions:
                                     condition_value = rule.conditions[feature]
@@ -343,7 +344,8 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                                         max_decimal = condition_value
                                         print(f"[DEBUG] Using decimal from condition '{feature}' | 'max_decimal' is {max_decimal}")
 
-                                    elif rule.name in ("matches_regex"):
+                                    elif "matches_regex" in rule.name  and colname in rule.sample_column:
+                                        print("find matches regex")
                                         dominant_pattern = condition_value
                                         print(f"[DEBUG] Using pattern from condition '{feature}'")
 
@@ -363,32 +365,32 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                                         for idx, val in series.items():
                                             try:
                                                 if not condition_value(val):
-                                                    print(f"[DEBUG] ❌ Condition '{feature}' failed | "
-                                                          f"Column: {column} | Index: {idx} | Value: {val}")
+                                                    #print(f"[DEBUG] ❌ Condition '{feature}' failed | "
+                                                    #      f"Column: {column} | Index: {idx} | Value: {val}")
                                                     col_errors.add(idx)
                                             except Exception as e:
                                                 print(f"[DEBUG] Error applying condition '{feature}': {e}")
                                     else:
                                         for idx, val in series.items():
                                             if str(val) != str(condition_value):
-                                                print(f"[DEBUG] ❌ Exact match failed for '{feature}' | "
-                                                      f"Column: {column} | Index: {idx} | Value: {val}")
+                                                #print(f"[DEBUG] ❌ Exact match failed for '{feature}' | "
+                                                #      f"Column: {column} | Index: {idx} | Value: {val}")
                                                 col_errors.add(idx)
 
                         # --- Case 2: Multiple entries ---
-                        elif hasattr(rule, "sample_column") and isinstance(rule.sample_column, list):
-                            for entry in shared_rules.get(rule.name, []):
-                                if colname in entry.get("sample_column", []):
-                                    for cond_key, cond_value in entry["conditions"].items():
-                                        print(
-                                            f"[DEBUG] Found condition '{cond_key}' in entries for {colname}: {cond_value}")
-                                        if cond_key.lower().endswith("pattern"):
-                                            dominant_pattern = cond_value
-                                        elif cond_key == "basic_data_type":
-                                            expected_data_type = cond_value
-                                        elif cond_key == "max_decimal":
-                                            max_decimal = cond_value
-                                            print(f"check{max_decimal}")
+                        #elif hasattr(rule, "sample_column") and isinstance(rule.sample_column, list):
+                        #    for entry in shared_rules.get(rule.name, []):
+                        #        if colname in entry.get("sample_column", []):
+                        #            for cond_key, cond_value in entry["conditions"].items():
+                        #                print(
+                        #                    f"[DEBUG] Found condition '{cond_key}' in entries for {colname}: {cond_value}")
+                        #                if cond_key.lower().endswith("pattern"):
+                        #                    dominant_pattern = cond_value
+                        #                elif cond_key == "basic_data_type":
+                        #                    expected_data_type = cond_value
+                        #                elif cond_key == "max_decimal":
+                        #                    max_decimal = cond_value
+                        #                    print(f"check{max_decimal}")
 
                         # --- Case 3: Column profile fallback ---
                         #if not dominant_pattern and current_profile and current_profile.get("dominant_pattern"):
@@ -396,21 +398,20 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                         #    print(f"Found dominant_pattern from column profile for {column}: {dominant_pattern}")
 
                         # --- Case 4: No rule provided in conditions ---
-                        if not hasattr(rule, "conditions"):
-                            non_null_values = [v for v in series if pd.notna(v)]
-                            if non_null_values:
-                                condition_value = rule.conditions(str(non_null_values[0]))
-                                print(f"Inferred feature condition for column {column}: {condition_value}")
+                        #if not hasattr(rule, "conditions"):
+                        #    non_null_values = [v for v in series if pd.notna(v)]
+                        #    if non_null_values:
+                        #        condition_value = rule.conditions(str(non_null_values[0]))
+                        #        print(f"Inferred feature condition for column {column}: {condition_value}")
 
                         # --- Apply regex checks ---
                         if dominant_pattern:
                             rule.regex = re.compile(dominant_pattern)
                             for idx, val in series.items():
                                 if pd.notna(val):
-                                    val_pattern = rule.regex_pattern_category(str(val))
-                                    if not rule.regex.fullmatch(val_pattern):
-                                        #print(f"[DEBUG] ❌ Pattern mismatch | Column: {column} | Index: {idx} | "
-                                        #      f"Value: {val} | Pattern Detected: {val_pattern}")
+                                    val_str = str(val).strip()
+                                    if not rule.regex.fullmatch(val_str):  # match directly
+                                        #print(f"[DEBUG] ❌ '{val_str}' does not match {dominant_pattern}")
                                         col_errors.add(idx)
 
                         # --- Apply decimal_precision checks ---
@@ -434,10 +435,10 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                                 #taking too long to use search.by_city
                                 if semantic_domain == "city" and not is_us_city(val):
                                     col_errors.add(idx)
-                                    print(f"City should not be: {val}")
+                                    #print(f"City should not be: {val}")
                                 elif semantic_domain == "state" and not is_us_state(val):
                                     col_errors.add(idx)
-                                    print(f"State should not be: {val}")
+                                    #print(f"State should not be: {val}")
 
 
                 if col_errors:
