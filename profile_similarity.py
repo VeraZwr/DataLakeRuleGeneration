@@ -84,8 +84,8 @@ def print_violations(df, lhs, rhs):
 
 
 def main():
-    profile_path_beers = 'results/beers/dataset_profile.dictionary'
-    profile_path_hospital = 'results/hospital/dataset_profile.dictionary'
+    profile_path_beers = 'results/Quintet/beers/dataset_profile.dictionary'
+    profile_path_hospital = 'results/Quintet/hospital/dataset_profile.dictionary'
 
     profile_beers = flatten_profile(load_profile(profile_path_beers))
     profile_hospital = flatten_profile(load_profile(profile_path_hospital))

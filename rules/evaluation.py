@@ -135,8 +135,8 @@ us_counties = set(cities_df["county_norm"])
 cities_df["zips"] = cities_df["zips"].fillna("").astype(str)
 us_zipcodes = set()
 for z in cities_df["zips"]:
-    if "," in z:  # multiple ZIPs in one cell
-        us_zipcodes.update([zip.strip() for zip in z.split(",")])
+    if " " in z:  # multiple ZIPs in one cell
+        us_zipcodes.update([zip.strip() for zip in z.split(" ")])
     elif z:
         us_zipcodes.add(z.strip())
 
@@ -500,12 +500,12 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                                             try:
                                                 # Use the unified checker (spell check + Wikipedia fallback)
                                                 if has_spelling_errors(val):
-                                                    #print(f"[DEBUG] ❌ Spelling error for '{val}' "
+                                                    #print(f"[DEBUG] Spelling error for '{val}' "
                                                     #      f"| Column: {column} | Index: {idx}")
                                                     col_errors.add(idx)
                                                 else:
                                                     continue
-                                                    #print(f"[DEBUG] ✅ Spelling OK for '{val}'")
+                                                    #print(f"[DEBUG] Spelling OK for '{val}'")
                                             except Exception as e:
                                                 print(f"[DEBUG] Error during spell check for '{val}': {e}")
 
@@ -515,7 +515,7 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                                         for idx, val in series.items():
                                             try:
                                                 if not condition_value(val):
-                                                    #print(f"[DEBUG] ❌ Condition '{feature}' failed | "
+                                                    #print(f"[DEBUG] Condition '{feature}' failed | "
                                                     #      f"Column: {column} | Index: {idx} | Value: {val}")
                                                     col_errors.add(idx)
                                             except Exception as e:
@@ -524,7 +524,7 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                                         col_errors = set()
                                         for idx, val in series.items():
                                             if str(val) != str(condition_value):
-                                                #print(f"[DEBUG] ❌ Exact match failed for '{feature}' | "
+                                                #print(f"[DEBUG] Exact match failed for '{feature}' | "
                                                 #      f"Column: {column} | Index: {idx} | Value: {val}")
                                                 col_errors.add(idx)
 
@@ -567,12 +567,12 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                                     if is_phone_column_by_name(series.name.lower()):  # Column name check
                                         if not phone_pattern.fullmatch(val_str):
                                             col_errors.add(idx)
-                                            # print(f"[DEBUG] ❌ '{val_str}' is not a valid phone number")
+                                            # print(f"[DEBUG] '{val_str}' is not a valid phone number")
                                     else:
                                         # Regular pattern check
                                         if not rule.regex.fullmatch(val_str):
                                             col_errors.add(idx)
-                                            # print(f"[DEBUG] ❌ '{val_str}' does not match {dominant_pattern}")
+                                            #print(f"[DEBUG] '{val_str}' does not match {dominant_pattern}")
 
                         # --- Apply decimal_precision checks ---
                         if max_decimal:
@@ -581,13 +581,13 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                             for idx, val in numeric_series.items():
                                 original_val = series[idx]
                                 if pd.isna(val) and pd.notna(original_val):
-                                    #print(f"[DEBUG] ❌ Non-numeric value detected | Column: {column} | "
+                                    #print(f"[DEBUG] Non-numeric value detected | Column: {column} | "
                                     #      f"Index: {idx} | Value: {original_val}")
                                     col_errors.add(idx)
                                 else:
                                     decimals = count_decimals(val)
                                     if decimals > max_decimal:
-                                        #print(f"[DEBUG] ❌ Decimal precision failed | Column: {column} | "
+                                        #print(f"[DEBUG] Decimal precision failed | Column: {column} | "
                                         #      f"Index: {idx} | Value: {val} | Decimals: {decimals}")
                                      col_errors.add(idx)
 
@@ -603,7 +603,7 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                                     #print(f"State should not be: {val}")
                                 elif semantic_domain == "region" and not is_us_zip(val):
                                     col_errors.add(idx)
-                                # print(f"Zip should not be: {val}")
+                                    #print(f"Zip should not be: {val}")
                                 elif semantic_domain == "county" and not is_us_county(val):
                                     col_errors.add(idx)
                                 # print(f"County should not be: {val}")
@@ -666,7 +666,7 @@ def detect_dynamic_errors(clusters, shared_rules, rules, raw_dataset, column_pro
             rule_lookup.get(rn) and rule_lookup[rn].name == "matches_regex"
             for rn in shared_rules.get(cid, [])
         ):
-            print(f"⚠️ Cluster '{cid}' has no sample column available "
+            print(f"Cluster '{cid}' has no sample column available "
                   f"for its rules. Please specify a sample column for this cluster.")
             continue  # Skip processing this cluster
 

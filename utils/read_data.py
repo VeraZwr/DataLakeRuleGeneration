@@ -27,6 +27,7 @@ def read_csv(path: str, low_memory: bool = False, data_type: str = 'default') ->
         pandas dataframe of the table
     """
     logging.info("Reading table, name: %s", path)
+    logging.info(f"Full path provided: {path}")
 
     common_args = dict(
         sep=",",

@@ -194,7 +194,7 @@ SIMPLE_RULE_PROFILES = {
         },
         "features": ["spell_check"],
         "description": "No spelling errors in the value",
-        "sample_column": ["hospital_name","hospital_address_1""305b_Assessed_Lake_2018_locationvalue", "305b_Assessed_Lake_2018_watertype", "305b_Assessed_Lake_2018_classname","305b_Assessed_Lake_2018_fish_consumption_attainment", "305b_Assessed_Lake_2018_drinking_water_attainment"]
+        "sample_column": ["hospital_name","hospital_address_1", "hospital_type","hospital_owner","hospital_measure_name","hospital_sample","305b_Assessed_Lake_2018_locationvalue", "305b_Assessed_Lake_2018_watertype", "305b_Assessed_Lake_2018_classname","305b_Assessed_Lake_2018_fish_consumption_attainment", "305b_Assessed_Lake_2018_drinking_water_attainment"]
     },
 
     #"benford_conformity": {
