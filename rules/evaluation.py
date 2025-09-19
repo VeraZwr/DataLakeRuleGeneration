@@ -99,7 +99,7 @@ def has_spelling_errors(val):
     return True
 
 
-cities_df = pd.read_csv("database_US/uscities.csv")  # file from simplemaps
+cities_df = pd.read_csv("/Users/veraz/PycharmProjects/DataLakeRuleGeneration/database_US/uscities.csv")  # file from simplemaps
 
 
 
@@ -288,7 +288,10 @@ def get_shared_rules_per_cluster_with_sample_cloumn(rules, column_profiles, clus
                 sample_columns = []
 
             # Now sample_columns is a list of strings
+            #for col in cluster_colnames: print(f"[Debug cluster], {col}")
+            #for col in sample_columns: print(f"[Debug sample], {col}")
             if any(col in cluster_colnames for col in sample_columns):
+                #print(f"-------------{rule.name}  {sample_columns.col}")
                 applicable_rules.append(rule.name)
                 print(applicable_rules)
 
@@ -309,6 +312,7 @@ def detect_cell_errors_in_clusters(clusters, shared_rules, rules, raw_dataset):
     errors = []
 
     for cid, colnames in clusters.items():
+
         for rule_name in shared_rules.get(cid, []):
             rule = rule_map.get(rule_name)
             if not rule or not hasattr(rule, "validate_cell"):
@@ -336,6 +340,7 @@ def detect_error_cells(clusters, shared_rules, rules, column_data_lookup, table_
     rule_lookup = {rule.description: rule for rule in rules}
 
     for cid, colnames in clusters.items():
+
         applicable_rule_descriptions = shared_rules.get(cid, [])
 
         for rule_desc in applicable_rule_descriptions:
@@ -373,6 +378,22 @@ def detect_error_cells_across_tables(clusters, shared_rules, rules, raw_dataset)
     rule_lookup = {rule.description: rule for rule in rules}
 
     for cid, colnames in clusters.items():
+        print(f"DEBUG: Processing cluster {cid} with columns: {colnames}")
+        for colname in colnames:
+            try:
+                table, column = colname.split("::", 1)
+            except ValueError:
+                print(f"⚠️ Skipping malformed column name: {colname}")
+                continue
+            df = raw_dataset.get(table)
+            if df is None:
+                print(f"⚠️ No dataset found for table: {table}")
+                continue
+            if column not in df.columns:
+                print(f"⚠️ Column {column} not found in dataset {table}")
+                continue
+
+            print(f"✅ Column {column} from table {table} will be checked with rules: {shared_rules.get(cid)}")
         applicable_rule_descriptions = shared_rules.get(cid, [])
 
         for rule_desc in applicable_rule_descriptions:
@@ -384,7 +405,7 @@ def detect_error_cells_across_tables(clusters, shared_rules, rules, raw_dataset)
                 # Split into table + column name
                 if "_" not in table_column:
                     continue  # skip malformed names
-                table_name, column_name = table_column.split("_", 1)
+                table_name, column_name = table_column.split("::", 1)
 
                 df = raw_dataset.get(table_name)
                 if df is None or column_name not in df.columns:
@@ -428,10 +449,15 @@ def statistical_cell_detector(series):
 def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_profiles=None):
     errors = []
     rule_lookup = {rule.name: rule for rule in rules}
+    #print("error detection started")
 
     for cid, colnames in clusters.items():
+        print(f"DEBUG: Processing cluster {cid} with columns: {colnames}")
+
         for colname in colnames:
-            table, column = colname.split("_", 1)
+            table, column = colname.split("::", 1)
+            #print("DEBUG raw_dataset keys:", list(raw_dataset.keys()))
+
             df = raw_dataset.get(table)
             if df is None or column not in df.columns:
                 continue
@@ -445,10 +471,11 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                     if p.get("column_name") == column and str(p.get("dataset_name")).endswith(table):
                         current_profile = p
                         break
+            for col in column_profiles[:10]:
+                print("DEBUG profile:", col['dataset_name'], col['column_name'], "=>", col['unique_id'])
 
             for rule_name in shared_rules.get(cid, []):
                 rule = rule_lookup[rule_name]
-
                 # --- Special case for "is_not_nullable" ---
                 if rule.name == "is_not_nullable":
                     null_errors = series[series.isna()].index
@@ -463,7 +490,6 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
 
                         # --- Case 1: Flat conditions ---
                         if hasattr(rule, "conditions"):
-                            #print("here__________" + rule.name)
 
                             for feature in rule.features:
                                 if feature in rule.conditions:
@@ -500,8 +526,8 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                                             try:
                                                 # Use the unified checker (spell check + Wikipedia fallback)
                                                 if has_spelling_errors(val):
-                                                    #print(f"[DEBUG] Spelling error for '{val}' "
-                                                    #      f"| Column: {column} | Index: {idx}")
+                                                    print(f"[DEBUG] Spelling error for '{val}' "
+                                                          f"| Column: {column} | Index: {idx}")
                                                     col_errors.add(idx)
                                                 else:
                                                     continue

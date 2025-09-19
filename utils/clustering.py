@@ -39,7 +39,7 @@ def cluster_columns(columns, eps=0.5, min_samples=5,plot_eps=False):
                 val = 0.0  # or use a better default
             vec.append(float(val))
         data.append(vec)
-        valid_columns.append(col["column_name"])
+        valid_columns.append(col["unique_id"])
 
     if len(data) == 0:
         return {}
@@ -98,7 +98,7 @@ def k_means_cluster_columns(columns, n_clusters=5):
     for col in columns:
         vec = [float(col.get(f, 0.0) or 0.0) for f in feature_keys]
         data.append(vec)
-        valid_columns.append(col["column_name"])
+        valid_columns.append(col["unique_id"])
 
     if len(data) == 0:
         return {}
@@ -146,6 +146,7 @@ def k_means_cluster_columns(columns, feature_keys, n_clusters=5):
     unique_points = np.unique(data, axis=0)
     if len(unique_points) < n_clusters:
         n_clusters = len(unique_points)
+
         if n_clusters == 0:
             return {}  # Nothing unique to cluster
 
@@ -175,12 +176,11 @@ def encode_data_type(data_type):
     return mapping.get(data_type, 0)
 
 
-# Modified function: Three strategy clustering based on numeric features using DBSCAN
+'''
 import numpy as np
 import math
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.cluster import DBSCAN
-
 
 def cluster_columns_by_strategy(columns, eps=0.5, min_samples=5, plot_eps=False):
     # Strategy 1: ID-like columns (high unique_ratio, low null_ratio)
@@ -214,6 +214,5 @@ def cluster_columns_by_strategy(columns, eps=0.5, min_samples=5, plot_eps=False)
             strategy_clusters['unclustered'].append(name)
 
     return strategy_clusters
+'''
 
-
-# Example usage on mock data

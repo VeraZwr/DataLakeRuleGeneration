@@ -11,32 +11,32 @@ SIMPLE_RULE_PROFILES = {
         "conditions": {"unique_ratio": 1.0, "null_ratio": 0.0, "semantic_domain": "rank", "basic_data_type": "integer"},
         "features": ["unique_ratio", "null_ratio", "basic_data_type", "semantic_domain"],
         "description": "All values are unique and non-null",
-        "sample_column": ["305b_Assessed_Lake_2018_objectid(long)"]
+        "sample_column": ["305b_Assessed_Lake_2018::objectid(long)"]
     },
     "is_single_value": {
         "conditions": {"distinct_num": 1.0},
         "features": ["distinct_num"],
         "description": "Only one distinct value",
-        "sample_column": ["305b_Assessed_Lake_2018_cyclevalue(long)", "305b_Assessed_Lake_2018_sizeunit", "305b_Assessed_Lake_2018_watertype","305b_Assessed_Lake_2018_drinking_water_attainment_code"]
+        "sample_column": [""]#"305b_Assessed_Lake_2018::cyclevalue(long)", "305b_Assessed_Lake_2018::sizeunit", "305b_Assessed_Lake_2018::watertype","305b_Assessed_Lake_2018::drinking_water_attainment_code"]
     },
 
     "is_unique": {
         "conditions": {"unique_ratio": 1.0},
         "features": ["unique_ratio"],
         "description": "All values are unique",
-        "sample_column": ["305b_Assessed_Lake_2018_objectid(long)"]
+        "sample_column": [""]#"305b_Assessed_Lake_2018::objectid(long)"]
     },
     "is_nullable": {
-        "conditions": {"null_ratio": lambda x: x > 0},
+        "conditions": {"null_ratio": lambda x: x != 0},
         "features": ["null_ratio"],
         "description": "Cannot contains null values",
-        "sample_column": ["305b_Assessed_Lake_2018_drinking_water_attainment_code"]
+        "sample_column": ["305b_Assessed_Lake_2018::drinking_water_attainment_code"]
     },
     "is_not_nullable": {
         "conditions": {"null_ratio": 0},
         "features": ["null_ratio"],
         "description": "Contains null values",
-        "sample_column": ["flights_sched_dep_time","flights_act_dep_time", "305b_Assessed_Lake_2018_aquatic_life_attainment_code", "305b_Assessed_Lake_2018_objectid(long)"]
+        "sample_column": ["flights::sched_dep_time","flights::act_dep_time", "305b_Assessed_Lake_2018::aquatic_life_attainment_code", "305b_Assessed_Lake_2018::objectid(long)"]
     },
     "has_low_cardinality": {
         "conditions": {"unique_ratio": lambda x: x < 0.1},
@@ -49,7 +49,7 @@ SIMPLE_RULE_PROFILES = {
     "matches_regex_time": {
         "description": "Column must match a regex pattern based on its domain",
         "features": ["dominant_pattern"],
-        "sample_column": ["flights_sched_dep_time", "flights_act_dep_time"],
+        "sample_column": ["flights::sched_dep_time", "flights::act_arr_time"],
         "conditions": {
                     # "basic_data_type": "time_am_pm",
                     # "semantic_domain": "duration",
@@ -57,33 +57,43 @@ SIMPLE_RULE_PROFILES = {
                 }
             },
     "matches_regex_ounces":{
-                "sample_column": ["beers_ounces"],
+                "sample_column": ["beers::ounces"],
                 "features": ["dominant_pattern"],
                 "conditions": {
                     "dominant_pattern": r"^\d{1,2}$"
                 }
             },
     "matches_regex_ibu": {
-                "sample_column": ["beers_ibu"],
+                "sample_column": ["beers::ibu"],
                 "features": ["dominant_pattern"],
                 "conditions": {
                     "dominant_pattern": r"^\d{1,3}$"
                 }
             },
     "matches_regex_provider_number": {
-        "sample_column": ["hospital_provider_number"],
+        "sample_column": ["hospital::provider_number"],
         "features": ["dominant_pattern"],
         "conditions": {
             "dominant_pattern": r"^\d{5}$"
         }
     },
     "matches_regex_phone": {
-            "sample_column": ["hospital_phone"],
+            "sample_column": ["hospital::phone"],
             "features": ["dominant_pattern"],
             "conditions": {
                 "dominant_pattern": r"^\d{9}$"
-            }
+            },
+            "description": "Phone number must be an 11-digit number."
         },
+    "matches_regex_assessment_unit_id": {
+                "sample_column": ["305b_Assessed_Lake_2020::assessmentunitid"],
+                "features": ["dominant_pattern"],
+                "conditions": {
+                    "dominant_pattern": r"^CT\d{4}-00-\d-L\d{1,2}_01$"
+                }
+            },
+
+
 
 
         #        {
@@ -115,19 +125,19 @@ SIMPLE_RULE_PROFILES = {
             "conditions": {"semantic_domain": "city"},
             "features": ["semantic_domain"],
             "description": "Is a valid city name",
-            "sample_column": ["beers_city", "hospital_city"]
+            "sample_column": ["beers::city", "hospital::city"]
         },
     "is_state_id": {
                 "conditions": {"semantic_domain": "state"},
                 "features": ["semantic_domain"],
                 "description": "Is a valid state name",
-                "sample_column": ["beers_state", "hospital_state"]
+                "sample_column": ["beers::state", "hospital::state"]
                 },
     "is_zip": {
                     "conditions": {"semantic_domain": "region"},
                     "features": ["semantic_domain"],
                     "description": "Is a valid zip code",
-                    "sample_column": ["hospital_zip"]
+                    "sample_column": ["hospital::zip"]
                 },
     # Merge with patterns
     # "data_type_is": {
@@ -149,7 +159,7 @@ SIMPLE_RULE_PROFILES = {
         },
         "features": ["numeric_min_value", "numeric_max_value"],
         "description": "Values within expected range",
-        "sample_column": ["movies_1_rating_value"] # movies_1
+        "sample_column": ["movies_1::rating_value"] # movies_1
     },
     "quartile_thresholds": {
         "conditions": {
@@ -167,7 +177,7 @@ SIMPLE_RULE_PROFILES = {
         },
         "features": ["min_len", "max_len"],
         "description": "String length within expected range",
-        "sample_column": ["305b_Assessed_Lake_2018_aquatic_life_attainment_code"]
+        "sample_column": ["305b_Assessed_Lake_2018::aquatic_life_attainment_code"]
     },
     "decimal_precision": {
         "conditions": {
@@ -175,7 +185,7 @@ SIMPLE_RULE_PROFILES = {
         },
         "features": ["max_decimal"],
         "description": "Decimal places within acceptable precision",
-        "sample_column": ["beers_abv"] #beers
+        "sample_column": ["beers::abv"] #beers
     },
 
 
@@ -186,7 +196,7 @@ SIMPLE_RULE_PROFILES = {
         },
         "features": ["dominant_pattern", "semantic_domain"],
         "description": "Geographic names follow expected format with town",
-        "sample_column": ["305b_Assessed_Lake_2018_watername"]
+        "sample_column": [""]#"305b_Assessed_Lake_2018::watername"
     },
     "is_spelled_correctly": {
         "conditions": {
@@ -194,7 +204,8 @@ SIMPLE_RULE_PROFILES = {
         },
         "features": ["spell_check"],
         "description": "No spelling errors in the value",
-        "sample_column": ["hospital_name","hospital_address_1", "hospital_type","hospital_owner","hospital_measure_name","hospital_sample","305b_Assessed_Lake_2018_locationvalue", "305b_Assessed_Lake_2018_watertype", "305b_Assessed_Lake_2018_classname","305b_Assessed_Lake_2018_fish_consumption_attainment", "305b_Assessed_Lake_2018_drinking_water_attainment"]
+        "sample_column": ["hospital::name","hospital::address_1", "hospital::type","hospital::owner","hospital::measure_name","hospital::sample","305b_Assessed_Lake_2020::assessmentunitname","305b_Assessed_Lake_2020::locationdescription", "305b_Assessed_Lake_2020::watertypename", "305b_Assessed_Lake_2020::units","305b_Assessed_Lake_2020::useclassname","305b_Assessed_Lake_2020::ct_two_zero_two_zero_aql_use_usename","305b_Assessed_Lake_2020::ct_two_zero_two_zero_aql_use_attainment", "305b_Assessed_Lake_2020::ct_two_zero_two_zero_rec_use_usename","305b_Assessed_Lake_2020::ct_two_zero_two_zero_rec_use_attainment","305b_Assessed_Lake_2020::ct_two_zero_two_zero_fshcon_use_attainment","305b_Assessed_Lake_2020::ct_two_zero_two_zero_dw_use_usename", "305b_Assessed_Lake_2020::ct_two_zero_two_zero_dw_use_attainment","305b_Assessed_Lake_2020::impaired"]
+    #"305b_Assessed_Lake_2018::locationvalue", "305b_Assessed_Lake_2018::watertype", "305b_Assessed_Lake_2018::classname","305b_Assessed_Lake_2018::fish_consumption_attainment", "305b_Assessed_Lake_2018::drinking_water_attainment",
     },
 
     #"benford_conformity": {
@@ -217,7 +228,7 @@ SIMPLE_RULE_PROFILES = {
         "conditions": {"basic_data_type": "boolean", "semantic_domain":"status", "top_keywords": {"yes", "no", "Yes", "No"}},
         "features": ["basic_data_type", "semantic_domain"],
         "description": "Semantic class matches expected class",
-        "sample_column": ["hospital_emergency_service", "305b_Assessed_Lake_2018_impaired"]
+        "sample_column": ["hospital::emergency_service"]#, "305b_Assessed_Lake_2018::impaired"]
     },
     "is_english_text": {
     "conditions": {

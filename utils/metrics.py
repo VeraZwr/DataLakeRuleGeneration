@@ -102,7 +102,6 @@ def compute_actual_errors(clean_dataset_dict, dirty_dataset_dict):
                     #print(dirty_val)
                     if clean_val != dirty_val:
                         col_name_dirty = dirty_df.columns[col_idx]
-                        #print(f"Debug:  ")
                         actual_errors_by_column[(table_name, col_name_dirty)].append(row_idx)
                 except Exception as e:
                     print(f"Error comparing cell [{row_idx}, {col_name_dirty}] in table '{table_name}': {e}")
@@ -221,13 +220,14 @@ def evaluate_multiple_datasets(rules, shared_rules, clusters, column_profiles, d
             clean_df = read_csv(clean_file)
             raw_dataset = {dataset_name: dirty_df}
             clean_dataset_dict = {dataset_name: clean_df}
-
+            #print("detect errors---", rules)
             errors = detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_profiles)
             errors = merge_errors(errors)
 
             predicted = set((dataset_name, col, row)
                             for err in errors for row in err["error_indices"]
                             for col in [err["column"]])
+            #print("dataset_name---", dataset_name)
             actual = set((dataset_name, col, row)
                          for (tbl, col), rows in compute_actual_errors(clean_dataset_dict, raw_dataset).items()
                          if tbl == dataset_name for row in rows)

@@ -24,7 +24,7 @@ class REDS:
     The main class.
     """
 
-    def __init__(self, datasets_folder="datasets/Quintet", results_folder="results"):
+    def __init__(self, datasets_folder="datasets/Quintet_Split_test", results_folder="results/Quintet_Split"):
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.datasets_folder = datasets_folder
         self.DATASETS_FOLDER = os.path.join(base_dir, datasets_folder)
@@ -34,12 +34,34 @@ class REDS:
         self.colname_transformer = ColumnNameFeature(category_prototypes=COLUMN_CATEGORY_PROTOTYPES)
         self.colname_transformer.fit()
         self.dtype_transformer = DataTypeFeatures()
-        self.file_name = "rayyan"
+        #self.file_name = "rayyan_2"
         args = argparse.Namespace()
         args.model = "viznet"
         self.doduo = Doduo(args)
 
     def load_datasets(self):
+        if not os.path.isdir(self.DATASETS_FOLDER):
+            raise FileNotFoundError(f"Datasets folder not found: {self.DATASETS_FOLDER}")
+
+        for name in sorted(os.listdir(self.DATASETS_FOLDER)):
+            dataset_dir = os.path.join(self.DATASETS_FOLDER, name)
+            if not os.path.isdir(dataset_dir):
+                continue
+
+            dirty = os.path.join(dataset_dir, "dirty.csv")
+            if not os.path.exists(dirty):
+                # not a dataset folder we care about
+                continue
+
+            clean = os.path.join(dataset_dir, "clean.csv")
+            self.DATASETS[name] = {
+                "name": name,
+                "path": dirty,
+                "clean_path": clean if os.path.exists(clean) else None,
+                "functions": [],  # fill if you have them
+                "patterns": [],  # fill if you have them
+            }
+        '''
         self.DATASETS[self.file_name] = {
             "name": self.file_name,
             "path": os.path.join(self.DATASETS_FOLDER, self.file_name, "dirty.csv"),
@@ -47,6 +69,7 @@ class REDS:
             "functions": [...],
             "patterns": [...],
         }
+        '''
 
     def guess_column_type(self, column_data):
         col = column_data.dropna()
@@ -143,7 +166,7 @@ class REDS:
 
     # -------------------------
     #combined with dataset profiler
-    def column_profiler(self, column_data, column_name):
+    def column_profiler(self, column_data, column_name, dataset_name=None):
         """
         Profile a single column with dataset-level stats applied per column.
         """
@@ -277,7 +300,8 @@ class REDS:
 
 
         return {
-            "column_name": self.file_name +"_"+column_name,
+            "column_name": dataset_name +"::"+column_name,
+            # numeric stats
             "row_num": row_num,
             "null_ratio": null_ratio,
             "distinct_num": distinct_num,
@@ -302,11 +326,11 @@ class REDS:
             "cells_punctuation": cell_punct,
             "cells_miscellaneous": cell_misc,
             "cells_length_avg": cell_total_len / row_num,
-            "cells_null": cell_null,
-
+            # "cells_null": cell_null,
+            # text-based features
             "top_keywords": dict(
                 sorted(keywords_dictionary.items(), key=lambda x: x[1], reverse=True)[:self.KEYWORDS_COUNT_PER_COLUMN]),
-
+            # numeric stats
             "numeric_min": numeric_min,
             "numeric_max": numeric_max,
             "max_digits": max_digits,
@@ -325,7 +349,7 @@ class REDS:
             "max_len": max_len,
             "min_len": min_len,
             "avg_len": avg_len,
-
+            # encoded categorical
             "dominant_pattern": dominant_pattern,
             "basic_data_type": self.guess_column_type(column_data)
 
@@ -565,8 +589,8 @@ class REDS:
             #"dataset_column_index": column_index,
             #"dominant_data_type": data_type_list,
             "dataset_top_keywords": top_keywords_dictionary,
-            "dataset_rules_count": len(self.DATASETS[d.name]["functions"]),
-            "dataset_patterns_count": len(self.DATASETS[d.name]["patterns"]),
+            "dataset_rules_count": len(self.DATASETS.get(d.name, {}).get("functions", [])),
+            "dataset_patterns_count": len(self.DATASETS.get(d.name, {}).get("patterns", [])),
             "characters_unique_mean": f(characters_unique_list),
             "characters_unique_variance": g(characters_unique_list),
             "characters_alphabet_mean": f(characters_alphabet_list),
@@ -609,20 +633,49 @@ class REDS:
 
         # build column profile
         column_profiles = []
-        valid_indices = list(range(len(semantic_guesses_doduo)))  # adjust if needed
-        semantic_list =[]
+        semantic_types = dict(zip(valid_col_indices, semantic_guesses_doduo))  # map idx -> type
+
         for i, column_name in enumerate(d.dataframe.columns):
-            column_profile = self.column_profiler(d.dataframe[column_name], column_name)
-            if i in valid_indices:
-                column_profile["semantic_domain"] = semantic_guesses_doduo[valid_indices.index(i)]
-                semantic_list.append(column_name+": "+ semantic_guesses_doduo[valid_indices.index(i)])
-            else:
-                column_profile["semantic_domain"] = None
+            column_profile = self.column_profiler(d.dataframe[column_name], column_name,
+                                                  d.name)  # <-- pass dataset name
+            column_profile["semantic_domain"] = semantic_types.get(i)
             column_profiles.append(column_profile)
         print(column_profiles)
         #print("test",semantic_list)
         # Save column-level profile in a separate file
         pickle.dump(column_profiles, open(os.path.join(self.RESULTS_FOLDER, d.name, "column_profile.dictionary"), "wb"))
+
+        return column_profiles
+
+    def process_all_datasets(datasets_folder, results_folder, generate_profile_func):
+        """
+        Loop through datasets in datasets_folder and save column profiles for each.
+
+        Args:
+            datasets_folder (str): Path to folder containing datasets.
+            results_folder (str): Path where results will be stored.
+            generate_profile_func (callable): Function that takes a dataset path and returns column_profiles.
+        """
+        for dataset_name in os.listdir(datasets_folder):
+            dataset_path = os.path.join(datasets_folder, dataset_name)
+
+            if os.path.isdir(dataset_path):  # Only process folders
+                column_profiles = generate_profile_func(dataset_path)
+
+                # Create results folder for each dataset if not exists
+                output_folder = os.path.join(results_folder, dataset_name)
+                os.makedirs(output_folder, exist_ok=True)
+
+                # Save profiles
+                output_file = os.path.join(output_folder, "column_profile.dictionary")
+                with open(output_file, "wb") as f:
+                    pickle.dump(column_profiles, f)
+
+                print(f"Processed: {dataset_name}, saved to {output_file}")
+
+    # Example usage:
+    # process_all_datasets("/path/to/datasets_folder", "/path/to/results_folder", your_profile_function)
+
     def train_column_regression(self, all_column_profiles, performance_labels):
         """
         Train regression models to predict strategy performance per column.
@@ -661,10 +714,20 @@ if __name__ == "__main__":
     application.load_datasets()
     # ----------------------------------------
     for dd in application.DATASETS.values():
+        dataset_name = dd["name"]
         print ("===================== Dataset: {} =====================".format(dd["name"]))
-        if not os.path.exists(os.path.join(application.RESULTS_FOLDER, dd["name"])):
-            os.mkdir(os.path.join(application.RESULTS_FOLDER, dd["name"]))
+        #if not os.path.exists(os.path.join(application.RESULTS_FOLDER, dd["name"])):
+        #    os.mkdir(os.path.join(application.RESULTS_FOLDER, dd["name"]))
+        result_path = os.path.join(application.RESULTS_FOLDER, dataset_name)
+        os.makedirs(result_path, exist_ok=True)
+        #application.dataset_profiler(dd)
+        column_profiles = application.dataset_profiler(dd)
 
-        application.dataset_profiler(dd)
+        # Save profile to pickle file
+        profile_path = os.path.join(result_path, "column_profile.dictionary")
+        with open(profile_path, "wb") as f:
+            pickle.dump(column_profiles, f)
+
+        print(f"Saved column profile to: {profile_path}")
         # application.strategy_profiler(dd)
         # application.evaluation_profiler(dd)

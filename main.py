@@ -30,6 +30,7 @@ class NumpyEncoder(json.JSONEncoder):
         return super().default(obj)
 
 def get_column_profile_by_name(name, profiles):
+
     for col in profiles:
         if col["column_name"] == name:
             return col
@@ -107,7 +108,11 @@ def main(mode = "single",dataset_name=None, dataset_group=None, eps_value=0.5, m
         dataset_column_profiles = load_pickle(path)
         for col in dataset_column_profiles:
             col['dataset_name'] = dname
-            col['unique_id'] = f"{dname}::{col['column_name']}"
+            clean_col_name = col['column_name']
+            #if clean_col_name.startswith(dname + "::"):  # strip dataset prefix
+            #    clean_col_name = clean_col_name[len(dname):]
+            col['column_name'] = clean_col_name
+            col['unique_id'] = f"{clean_col_name}"
         column_profiles.extend(dataset_column_profiles)
 
     # all dataset
@@ -156,13 +161,7 @@ def main(mode = "single",dataset_name=None, dataset_group=None, eps_value=0.5, m
 
         clustered_columns_with_dataset = {}
         for cid, colnames in clusters.items():
-            seen = set()
-            clustered_columns_with_dataset[cid] = []
-            for col in column_profiles:
-                uid = col['unique_id']
-                if col['column_name'] in colnames and uid not in seen:
-                    clustered_columns_with_dataset[cid].append(uid)
-                    seen.add(uid)
+            clustered_columns_with_dataset[cid] = list(set(colnames))
 
         for cid, colnames in clusters.items():
                 print(f"  Cluster {cid}: {colnames}")
@@ -232,7 +231,7 @@ if __name__ == "__main__":
     parser.add_argument("--min_samples", type=int, default=1, help="Clustering minimum sample size")
     args = parser.parse_args()
 
-    main(mode=args.mode, dataset_name=args.dataset_name, dataset_group=args.dataset_group, eps_value=args.eps)
+    main(mode=args.mode, dataset_name=args.dataset_name, dataset_group=args.dataset_group, eps_value=args.eps, min_samples=args.min_samples)
 
-    # python main.py --mode single --dataset_name hospital --dataset_group Quintet
-    # python main.py --mode multi --dataset_group Quintet
+    # python3 main.py --mode single --dataset_name hospital --dataset_group Quintet
+    # python3 main.py --mode multi --dataset_group Quintet --min_samples 2
