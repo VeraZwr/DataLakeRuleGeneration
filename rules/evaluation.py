@@ -2,13 +2,10 @@
 import pandas as pd
 import re
 import os
-import pandas as pd
 from spellchecker import SpellChecker
 from uszipcode import SearchEngine
-import time
 # search = SearchEngine()
 import spacy
-from spellchecker import SpellChecker
 
 import requests
 
@@ -175,6 +172,48 @@ def is_phone_column_by_name(column_name):
 phone_pattern = re.compile(
     r'^\+?1?\s*\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}$'
 )
+
+import re
+
+def is_phone(value: str) -> bool:
+    """Check if the value matches a phone number pattern."""
+    return bool(phone_pattern.match(value))
+
+email_pattern = re.compile(
+    r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'
+)
+
+def is_email(value: str) -> bool:
+    """Check if the value matches an email pattern."""
+    return bool(email_pattern.match(value))
+
+rank_pattern = re.compile(
+    r'^[0-9]+$'
+)
+
+
+def is_rank(value) -> bool:
+    """
+    True iff value is a string of digits like "1", "003".
+    Integers are converted to strings first.
+    Rejects floats, bools, None, etc.
+    """
+    if value is None:
+        return False
+
+    # Exclude booleans (since isinstance(True, int) == True)
+    if isinstance(value, bool):
+        return False
+
+    # Convert ints to string, everything else stays as-is
+    text = str(value) if isinstance(value, int) else value
+
+    # Only match if it's actually a string
+    if not isinstance(text, str):
+        return False
+
+    return bool(rank_pattern.match(text.strip()))
+
 #def is_phone_column_by_content(series):
 #    """Check if a column's values look like phone numbers."""
 #    non_empty = series.dropna().astype(str)
@@ -345,7 +384,7 @@ def detect_error_cells(clusters, shared_rules, rules, column_data_lookup, table_
 
         for rule_desc in applicable_rule_descriptions:
             rule = rule_lookup.get(rule_desc)
-            print(rule)
+            # print(rule)
             if not rule:
                 continue
 
@@ -383,17 +422,17 @@ def detect_error_cells_across_tables(clusters, shared_rules, rules, raw_dataset)
             try:
                 table, column = colname.split("::", 1)
             except ValueError:
-                print(f"⚠️ Skipping malformed column name: {colname}")
+                print(f"Skipping malformed column name: {colname}")
                 continue
             df = raw_dataset.get(table)
             if df is None:
-                print(f"⚠️ No dataset found for table: {table}")
+                print(f"No dataset found for table: {table}")
                 continue
             if column not in df.columns:
-                print(f"⚠️ Column {column} not found in dataset {table}")
+                print(f"Column {column} not found in dataset {table}")
                 continue
 
-            print(f"✅ Column {column} from table {table} will be checked with rules: {shared_rules.get(cid)}")
+            print(f"Column {column} from table {table} will be checked with rules: {shared_rules.get(cid)}")
         applicable_rule_descriptions = shared_rules.get(cid, [])
 
         for rule_desc in applicable_rule_descriptions:
@@ -482,7 +521,7 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                     col_errors.update(null_errors)
                 else:
                     if rule.name:
-                        print(rule_name)
+                        # print(rule_name)
                         dominant_pattern = None
                         expected_data_type = None
                         max_decimal = None
@@ -494,29 +533,29 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                             for feature in rule.features:
                                 if feature in rule.conditions:
                                     condition_value = rule.conditions[feature]
-                                    print(f"[DEBUG] Found condition '{feature}' in flat conditions: {condition_value}")
+                                    # print(f"[DEBUG] Found condition '{feature}' in flat conditions: {condition_value}")
 
                                     # Decimal
                                     if rule.name in ("decimal_precision"):  # Numeric or functional condition
                                         # Ensure the column is numeric
                                         max_decimal = condition_value
-                                        print(f"[DEBUG] Using decimal from condition '{feature}' | 'max_decimal' is {max_decimal}")
+                                        # print(f"[DEBUG] Using decimal from condition '{feature}' | 'max_decimal' is {max_decimal}")
 
                                     elif "matches_regex" in rule.name  and colname in rule.sample_column:
-                                        print("find matches regex")
+                                        # print("find matches regex")
                                         dominant_pattern = condition_value
-                                        print(f"[DEBUG] Using pattern from condition '{feature}'")
+                                        # print(f"[DEBUG] Using pattern from condition '{feature}'")
 
                                     # Data type checks
                                     elif feature == "basic_data_type":
                                         expected_data_type = condition_value
-                                        print(
-                                            f"[DEBUG] Expected data type '{expected_data_type}' for rule '{rule.name}'")
+                                        # print(
+                                        #     f"[DEBUG] Expected data type '{expected_data_type}' for rule '{rule.name}'")
 
                                     elif feature == "semantic_domain":
                                         semantic_domain = condition_value
-                                        print(
-                                            f"[DEBUG] Expected data type '{semantic_domain}' for rule '{rule.name}'")
+                                        # print(
+                                        #     f"[DEBUG] Expected data type '{semantic_domain}' for rule '{rule.name}'")
 
 
 
@@ -526,8 +565,8 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                                             try:
                                                 # Use the unified checker (spell check + Wikipedia fallback)
                                                 if has_spelling_errors(val):
-                                                    print(f"[DEBUG] Spelling error for '{val}' "
-                                                          f"| Column: {column} | Index: {idx}")
+                                                    # print(f"[DEBUG] Spelling error for '{val}' "
+                                                    #       f"| Column: {column} | Index: {idx}")
                                                     col_errors.add(idx)
                                                 else:
                                                     continue
@@ -545,7 +584,8 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                                                     #      f"Column: {column} | Index: {idx} | Value: {val}")
                                                     col_errors.add(idx)
                                             except Exception as e:
-                                                print(f"[DEBUG] Error applying condition '{feature}': {e}")
+                                                continue
+                                                # print(f"[DEBUG] Error applying condition '{feature}': {e}")
                                     else:
                                         col_errors = set()
                                         for idx, val in series.items():
@@ -633,10 +673,16 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                                 elif semantic_domain == "county" and not is_us_county(val):
                                     col_errors.add(idx)
                                 # print(f"County should not be: {val}")
+                                elif semantic_domain == "phone" and not is_phone(val):
+                                    col_errors.add(idx)
+                                elif semantic_domain == "email" and not is_email(val):
+                                    col_errors.add(idx)
+                                elif semantic_domain == "rank" and not is_rank(val):
+                                    col_errors.add(idx)
 
                 if col_errors:
                     total_rows = len(series)  # total rows in this column
-
+                    # desc = getattr(rule, "description", None) or desc_resolver(rule.name) or "ERROR"
                     # Skip if all rows are flagged
                     # if flag every row as an error, then the rule is usually not very useful (too generic or specific)
                     # the column is also potentially in a wrong cluster
@@ -650,6 +696,8 @@ def detect_combined_errors(clusters, shared_rules, rules, raw_dataset, column_pr
                             "table": table,
                             "cluster": cid,
                             "column": column,
+                            "rule_name": rule.name,
+                            "description": rule.description,
                             "error_indices": sorted(list(col_errors))
                         })
     return errors

@@ -10,8 +10,8 @@ SIMPLE_RULE_PROFILES = {
     "is_id": {
         "conditions": {"unique_ratio": 1.0, "null_ratio": 0.0, "semantic_domain": "rank", "basic_data_type": "integer"},
         "features": ["unique_ratio", "null_ratio", "basic_data_type", "semantic_domain"],
-        "description": "All values are unique and non-null",
-        "sample_column": ["305b_Assessed_Lake_2018::objectid(long)"]
+        "description": "Violate unique and non-null",
+        "sample_column": ["305b_Assessed_Lake_2018::objectid(long)"] #"beers::index",beers::id"
     },
     "is_single_value": {
         "conditions": {"distinct_num": 1.0},
@@ -23,20 +23,20 @@ SIMPLE_RULE_PROFILES = {
     "is_unique": {
         "conditions": {"unique_ratio": 1.0},
         "features": ["unique_ratio"],
-        "description": "All values are unique",
+        "description": "Violate unique",
         "sample_column": [""]#"305b_Assessed_Lake_2018::objectid(long)"]
     },
     "is_nullable": {
         "conditions": {"null_ratio": lambda x: x != 0},
         "features": ["null_ratio"],
-        "description": "Cannot contains null values",
-        "sample_column": ["305b_Assessed_Lake_2018::drinking_water_attainment_code"]
+        "description": "Cannot be null",
+        "sample_column": ["305b_Assessed_Lake_2018::drinking_water_attainment_code","hospital::score"]
     },
     "is_not_nullable": {
         "conditions": {"null_ratio": 0},
         "features": ["null_ratio"],
         "description": "Contains null values",
-        "sample_column": ["flights::sched_dep_time","flights::act_dep_time", "305b_Assessed_Lake_2018::aquatic_life_attainment_code", "305b_Assessed_Lake_2018::objectid(long)"]
+        "sample_column": ["rayyan::article_jvolumn", "rayyan_article_jissue","305b_Assessed_Lake_2018::aquatic_life_attainment_code", "305b_Assessed_Lake_2018::objectid(long)"] # "flights::sched_dep_time","flights::act_dep_time",
     },
     "has_low_cardinality": {
         "conditions": {"unique_ratio": lambda x: x < 0.1},
@@ -47,9 +47,9 @@ SIMPLE_RULE_PROFILES = {
     #dynamic rule
 
     "matches_regex_time": {
-        "description": "Column must match a regex pattern based on its domain",
+        "description": "Mismatch Pattern",
         "features": ["dominant_pattern"],
-        "sample_column": ["flights::sched_dep_time", "flights::act_arr_time"],
+        "sample_column": ["flights::sched_dep_time", "flights::act_dep_time", "flights::act_dep_time", "flights::act_arr_time"],
         "conditions": {
                     # "basic_data_type": "time_am_pm",
                     # "semantic_domain": "duration",
@@ -61,21 +61,24 @@ SIMPLE_RULE_PROFILES = {
                 "features": ["dominant_pattern"],
                 "conditions": {
                     "dominant_pattern": r"^\d{1,2}$"
-                }
+                },
+                "description": "1-2 digit number."
             },
     "matches_regex_ibu": {
                 "sample_column": ["beers::ibu"],
                 "features": ["dominant_pattern"],
                 "conditions": {
                     "dominant_pattern": r"^\d{1,3}$"
-                }
+                },
+                "description": "1-3 digit number."
             },
     "matches_regex_provider_number": {
         "sample_column": ["hospital::provider_number"],
         "features": ["dominant_pattern"],
         "conditions": {
             "dominant_pattern": r"^\d{5}$"
-        }
+        },
+        "description": "5-digit number."
     },
     "matches_regex_phone": {
             "sample_column": ["hospital::phone"],
@@ -83,7 +86,7 @@ SIMPLE_RULE_PROFILES = {
             "conditions": {
                 "dominant_pattern": r"^\d{9}$"
             },
-            "description": "Phone number must be an 11-digit number."
+            "description": "11-digit number."
         },
     "matches_regex_assessment_unit_id": {
                 "sample_column": ["305b_Assessed_Lake_2020::assessmentunitid"],
@@ -92,66 +95,89 @@ SIMPLE_RULE_PROFILES = {
                     "dominant_pattern": r"^CT\d{4}-00-\d-L\d{1,2}_01$"
                 }
             },
+    "matches_regex_movieid": {
+        "sample_column": ["movies_1::id"],
+        "features": ["dominant_pattern"],
+        "conditions": {
+            "dominant_pattern": r"^tt\d{7}$"
+        },
+        "description": "tt with 7-digit number."
+    },
+    "matches_regex_year": {
+        "sample_column": ["movies_1::year"],
+        "features": ["dominant_pattern"],
+        "conditions": {
+            "dominant_pattern": r"^\d{4}$"
+        },
+        "description": "4-digit number."
+    },
+    "matches_regex_relasedate": {
+            "sample_column": ["movies_1::year"],
+            "features": ["dominant_pattern"],
+            "conditions": {
+                "dominant_pattern": r"^(?:\d{1,2}\s)?(January|February|March|April|May|June|July|August|September|October|November|December)\s\d{4}\s\([A-Z]{3,}\)$"
+
+            },
+            "description": "(Date) Month Year (Country)."
+        },
+    "matches_regex_timeduration": {
+                "sample_column": ["rayyan::journal_issn"],
+                "features": ["dominant_pattern"],
+                "conditions": {
+                    "dominant_pattern": r"^(?:\d{4}-\d{4})?$"
+                },
+                "description": "Invalid journal issn."
+            },
+"matches_regex_timeduration": {
+                "sample_column": ["movies_1::duration"],
+                "features": ["dominant_pattern"],
+                "conditions": {
+                    "dominant_pattern": r"^\d+\s?min$"
+                },
+                "description": "Invalid format of duration."
+            },
 
 
-
-
-        #        {
-        #            "sample_column": ["hospital_state", "beers_state"],
-        #            "conditions": {
-        #                "basic_data_type": "string",
-        #                "semantic_domain": "state",
-        #                "dominant_pattern": r"^[A-Za-z]{2}$"
-        #            }
-        #        },
-        #        {
-        #            "sample_column": "hospital_zip",
-        #            "conditions": {
-        #                "basic_data_type": "integer",
-        #                "semantic_domain": "region",
-        #                "dominant_pattern": r"^\d{5}$"
-        #            }
-        #        },
-        #        {
-        #            "sample_column": "305b_Assessed_Lake_2018_id_three_zero_five_b",
-        #            "conditions": {
-        #                "basic_data_type": "string",
-        #                "semantic_domain": "code",
-        #                "dominant_pattern": r"^[A-Za-z][A-Za-z]\\d\\d\\d\\d\\-\\d\\d\\-\\d\\-[A-Za-z]\\d_\\d\\d$"
-        #            }
-        #        }
 #semantic domain check
+    "is_country": {
+        "conditions": {"semantic_domain": "country"},
+        "features": ["semantic_domain"],
+        "description": "Invalid country name",
+        "sample_column": ["movies_1::country"]
+    },
     "is_city": {
             "conditions": {"semantic_domain": "city"},
             "features": ["semantic_domain"],
-            "description": "Is a valid city name",
+            "description": "Invalid city name",
             "sample_column": ["beers::city", "hospital::city"]
         },
     "is_state_id": {
                 "conditions": {"semantic_domain": "state"},
                 "features": ["semantic_domain"],
-                "description": "Is a valid state name",
+                "description": "Invalid state name",
                 "sample_column": ["beers::state", "hospital::state"]
                 },
     "is_zip": {
                     "conditions": {"semantic_domain": "region"},
                     "features": ["semantic_domain"],
-                    "description": "Is a valid zip code",
-                    "sample_column": ["hospital::zip"]
+                    "description": "Invalid county name",
+                    "sample_column": ["hospital::county"]
                 },
-    # Merge with patterns
-    # "data_type_is": {
-    #    "description": "Column must be a certain data type",
-    #    "features": ["basic_data_type"],
-    #    "entries": [
-    #        {
-    #            "sample_column": ["beers_ounces"],
-    #            "conditions": {
-    #                "basic_data_type": "integer"
-    #            }
-    #        },
-    #    ]
-    #},
+
+    "is_county": {
+        "conditions": {"semantic_domain": "county"},
+        "features": ["semantic_domain"],
+        "description": "Invalid zip code",
+        "sample_column": ["hospital::zip"]
+    },
+
+    "is_rank": {
+            "conditions": {"semantic_domain": "rank"},
+            "features": ["semantic_domain"],
+            "description": "Invalid rank number",
+            "sample_column": ["movies_1::rating_count"]
+        },
+
     "value_in_range": {
         "conditions": {
             "numeric_min_value": lambda x: x >= 0,
@@ -159,7 +185,7 @@ SIMPLE_RULE_PROFILES = {
         },
         "features": ["numeric_min_value", "numeric_max_value"],
         "description": "Values within expected range",
-        "sample_column": ["movies_1::rating_value"] # movies_1
+        "sample_column": [""] # movies_1  movies_1::rating_value
     },
     "quartile_thresholds": {
         "conditions": {
@@ -203,8 +229,8 @@ SIMPLE_RULE_PROFILES = {
             "spell_check": lambda val: not has_spelling_errors(val)
         },
         "features": ["spell_check"],
-        "description": "No spelling errors in the value",
-        "sample_column": ["hospital::name","hospital::address_1", "hospital::type","hospital::owner","hospital::measure_name","hospital::sample","305b_Assessed_Lake_2020::assessmentunitname","305b_Assessed_Lake_2020::locationdescription", "305b_Assessed_Lake_2020::watertypename", "305b_Assessed_Lake_2020::units","305b_Assessed_Lake_2020::useclassname","305b_Assessed_Lake_2020::ct_two_zero_two_zero_aql_use_usename","305b_Assessed_Lake_2020::ct_two_zero_two_zero_aql_use_attainment", "305b_Assessed_Lake_2020::ct_two_zero_two_zero_rec_use_usename","305b_Assessed_Lake_2020::ct_two_zero_two_zero_rec_use_attainment","305b_Assessed_Lake_2020::ct_two_zero_two_zero_fshcon_use_attainment","305b_Assessed_Lake_2020::ct_two_zero_two_zero_dw_use_usename", "305b_Assessed_Lake_2020::ct_two_zero_two_zero_dw_use_attainment","305b_Assessed_Lake_2020::impaired"]
+        "description": "Typ",
+        "sample_column": ["beers::name","beers::brewery_name","hospital::name","hospital::address_1", "hospital::type","hospital::owner", "hospital::condition", "hospital::measure_name","hospital::measure_code","hospital::sample","movies_1::name", "rayyan::article_title", "rayyan::author_list","305b_Assessed_Lake_2020::assessmentunitname","305b_Assessed_Lake_2020::locationdescription", "305b_Assessed_Lake_2020::watertypename", "305b_Assessed_Lake_2020::units","305b_Assessed_Lake_2020::useclassname","305b_Assessed_Lake_2020::ct_two_zero_two_zero_aql_use_usename","305b_Assessed_Lake_2020::ct_two_zero_two_zero_aql_use_attainment", "305b_Assessed_Lake_2020::ct_two_zero_two_zero_rec_use_usename","305b_Assessed_Lake_2020::ct_two_zero_two_zero_rec_use_attainment","305b_Assessed_Lake_2020::ct_two_zero_two_zero_fshcon_use_attainment","305b_Assessed_Lake_2020::ct_two_zero_two_zero_dw_use_usename", "305b_Assessed_Lake_2020::ct_two_zero_two_zero_dw_use_attainment","305b_Assessed_Lake_2020::impaired"]
     #"305b_Assessed_Lake_2018::locationvalue", "305b_Assessed_Lake_2018::watertype", "305b_Assessed_Lake_2018::classname","305b_Assessed_Lake_2018::fish_consumption_attainment", "305b_Assessed_Lake_2018::drinking_water_attainment",
     },
 
@@ -241,6 +267,8 @@ SIMPLE_RULE_PROFILES = {
     "sample_column": [""]
 }
 }
+
+
 
 class DictionaryRule(BaseRule):
     def __init__(self, name, conditions, description, features, sample_column):

@@ -24,7 +24,7 @@ class REDS:
     The main class.
     """
 
-    def __init__(self, datasets_folder="datasets/Quintet_Split_test", results_folder="results/Quintet_Split"):
+    def __init__(self, datasets_folder="datasets/Quintet", results_folder="results/Quintet"):
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.datasets_folder = datasets_folder
         self.DATASETS_FOLDER = os.path.join(base_dir, datasets_folder)
