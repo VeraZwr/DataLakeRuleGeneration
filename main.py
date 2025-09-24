@@ -5,6 +5,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import time
+import json  # add this if not already imported
+
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
@@ -13,6 +15,9 @@ from datetime import datetime
 from rules.loader import load_all_rules
 from rules.evaluation import get_shared_rules_per_cluster_with_sample_cloumn
 from rules.dictionary_rule import SIMPLE_RULE_PROFILES
+from collections import Counter
+import re
+from sklearn.preprocessing import OneHotEncoder, MaxAbsScaler, normalize
 
 from utils.file_io import load_pickle
 from utils.metrics import (
@@ -32,6 +37,597 @@ from utils.clustering import (
 # ---------------------------
 # Helpers
 # ---------------------------
+import json, math, glob
+
+def _try_extract_f1_from_files(out_dir: Path) -> float | None:
+    """
+    Look for F1 in any CSV/JSON written under out_dir.
+    Returns a float or None if not found.
+    """
+    # CSVs
+    for p in out_dir.rglob("*.csv"):
+        try:
+            df = pd.read_csv(p)
+            for col in ["f1", "F1", "f1_score", "macro_f1", "micro_f1", "F1_score"]:
+                if col in df.columns:
+                    s = df[col].dropna()
+                    if len(s):
+                        # prefer the last row; fall back to max
+                        try: return float(s.iloc[-1])
+                        except Exception: return float(s.max())
+        except Exception:
+            pass
+    # JSONs
+    for p in out_dir.rglob("*.json"):
+        try:
+            obj = json.loads(p.read_text())
+            for k in ["f1", "F1", "f1_score", "macro_f1", "micro_f1"]:
+                if isinstance(obj, dict) and k in obj:
+                    try: return float(obj[k])
+                    except Exception: pass
+        except Exception:
+            pass
+    return None
+
+from contextlib import contextmanager
+
+@contextmanager
+def _timed(name: str):
+    t0 = time.perf_counter()
+    try:
+        yield
+    finally:
+        dt = time.perf_counter() - t0
+        print(f"[SWEEP] {name} took {dt:.3f}s")
+
+def sweep_rule_similarity_thresholds(column_profiles, rules, args, base_dir: Path):
+    """
+    Run RULE_SIMILARITY across multiple thresholds (and/or 'auto'), evaluate, collect F1,
+    save CSV + line plot. Returns the DataFrame of results.
+    """
+    if not args.sweep_rule_thr:
+        print("[SWEEP] No thresholds provided (use --sweep_rule_thr). Skipping.")
+        return pd.DataFrame()
+
+    # parse thresholds
+    thr_tokens = [t.strip() for t in args.sweep_rule_thr.split(",") if t.strip()]
+    thr_list: list[str | float] = []
+    for tok in thr_tokens:
+        thr_list.append("auto" if tok.lower() == "auto" else float(tok))
+
+    out_dir = base_dir / "RULE_SIMILARITY" / "sweep"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    rows = []
+    for thr in thr_list:
+        thr_tag = "auto" if isinstance(thr, str) else f"{thr:.2f}"
+        method_label = f"RULE_SIMILARITY@thr={thr_tag}"
+
+        with _timed(f"threshold={thr_tag}"):
+            # 1) run the similarity method
+            clusters_rule, df_scores_rule, Xp_rule = find_similar_columns_from_dictionary_rules_mixed(
+                column_profiles,
+                groups=None if not getattr(args, "rule_groups", "") else
+                        [g.strip() for g in args.rule_groups.split(",") if g.strip()],
+                metric=args.metric,
+                threshold=("auto" if thr == "auto" else thr),
+                top_k=args.rule_topk if hasattr(args, "rule_topk") else 0,
+                centroid_key="column_name",
+                id_key="unique_id",
+                keyword_field=getattr(args, "rule_keyword_field", "top_keywords"),
+                top_k_keywords=getattr(args, "rule_keywords_k", 20),
+                max_bins=getattr(args, "rule_max_bins", 20),
+                save_csv_path=out_dir / f"scores_thr={thr_tag}.csv",
+            )
+
+            # 2) compute shared rules and evaluate (re-using your existing pipeline)
+            shared_rules = get_shared_rules_per_cluster_with_sample_cloumn(
+                rules, column_profiles, clusters_rule
+            )
+
+            # note: evaluation functions in your repo typically write files; if they return a dict, we use it
+            eval_dir = base_dir / method_label
+            eval_dir.mkdir(parents=True, exist_ok=True)
+
+            summary = None
+            if args.mode == "single":
+                summary = evaluate_one_dataset_only(
+                    rules, shared_rules, clusters_rule, column_profiles,
+                    args.dataset_group, args.dataset_name,
+                    f"metric:{args.metric} | thr:{thr_tag}",
+                    method_label=method_label,
+                )
+            else:
+                summary = evaluate_multiple_datasets(
+                    rules, shared_rules, clusters_rule, column_profiles,
+                    args.dataset_group,
+                    f"metric:{args.metric} | thr:{thr_tag}",
+                    method_label=method_label,
+                )
+
+            # 3) get F1
+            f1 = None
+            if isinstance(summary, dict):
+                for k in ["f1", "F1", "macro_f1", "micro_f1", "f1_score"]:
+                    if k in summary:
+                        try:
+                            f1 = float(summary[k]); break
+                        except Exception:
+                            pass
+            if f1 is None:
+                f1 = _try_extract_f1_from_files(eval_dir)
+
+            rows.append({
+                "threshold": thr_tag,
+                "f1": (None if f1 is None else float(f1)),
+                "kept_columns": sum(len(v) for v in clusters_rule.values() if isinstance(v, list)),
+                "method_label": method_label,
+            })
+
+    df = pd.DataFrame(rows)
+    df.to_csv(out_dir / "threshold_sweep_f1.csv", index=False)
+    print(f"[SWEEP] Saved CSV: {(out_dir / 'threshold_sweep_f1.csv').resolve()}")
+
+    # plot
+    if getattr(args, "sweep_plot", False) and not df.empty:
+        try:
+            # ensure thresholds are ordered as given
+            x = df["threshold"].astype(str).tolist()
+            y = df["f1"].astype(float).tolist() if "f1" in df.columns else [np.nan]*len(x)
+
+            plt.figure()
+            plt.plot(x, y, marker="o")
+            plt.xlabel("Threshold")
+            plt.ylabel("F1 score")
+            plt.title("RULE_SIMILARITY: F1 vs Threshold")
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            plt.savefig(out_dir / "threshold_sweep_f1.png", bbox_inches="tight")
+            plt.close()
+            print(f"[SWEEP] Saved plot: {(out_dir / 'threshold_sweep_f1.png').resolve()}")
+        except Exception as e:
+            print(f"[SWEEP] Plot failed: {e}")
+
+    # print best
+    if "f1" in df.columns and df["f1"].notna().any():
+        best_row = df.loc[df["f1"].idxmax()]
+        print(f"[SWEEP] Best F1={best_row['f1']:.4f} at threshold={best_row['threshold']}")
+
+    return df
+
+
+from contextlib import contextmanager
+
+@contextmanager
+def timed_section(name: str, sink: list):
+    """
+    Usage:
+        with timed_section('DBSCAN', timings):
+            ... your code ...
+    Appends a dict with method name, start/end ISO timestamps, and duration (s).
+    """
+    start_dt = datetime.now()
+    t0 = time.perf_counter()
+    try:
+        yield
+    finally:
+        dur = time.perf_counter() - t0
+        end_dt = datetime.now()
+        sink.append({
+            "method": name,
+            "started_at": start_dt.isoformat(),
+            "finished_at": end_dt.isoformat(),
+            "duration_seconds": round(dur, 3),
+        })
+        print(f"[TIME] {name}: {dur:.3f} s")
+
+def _auto_threshold_by_elbow(values: np.ndarray, greater_is_better: bool) -> float:
+    """
+    Return an elbow threshold on a 1D score curve.
+    - If greater_is_better=True (e.g., cosine similarity), we sort DESC.
+    - If False (e.g., Euclidean distance), we sort ASC.
+    Uses distance-to-chord knee on the normalized curve.
+    """
+    v = np.asarray(values, dtype=float)
+    v = v[np.isfinite(v)]
+    if v.size == 0:
+        return None
+
+    # Sort so the "good" direction is to the left
+    s = np.sort(v)[::-1] if greater_is_better else np.sort(v)
+
+    # Degenerate case: flat curve
+    if (s.max() - s.min()) <= 1e-12:
+        return float(s[0])
+
+    x = np.linspace(0.0, 1.0, len(s))
+    y = (s - s.min()) / (s.max() - s.min() + 1e-12)
+
+    p1 = np.array([x[0], y[0]])
+    p2 = np.array([x[-1], y[-1]])
+    line = p2 - p1
+    unit = line / (np.linalg.norm(line) + 1e-12)
+
+    dists = []
+    for xi, yi in zip(x, y):
+        p = np.array([xi, yi])
+        proj = p1 + np.dot(p - p1, unit) * unit
+        dists.append(np.linalg.norm(p - proj))
+
+    knee_idx = int(np.argmax(dists))
+    thr = float(s[knee_idx])
+    return thr
+
+# --- Mixed-feature helpers (domain + distribution + keywords) ---
+# ---- Feature schema constants (must be defined BEFORE the builder is used) ----
+NUMERIC_COLS_ALL = [
+    "null_ratio","distinct_num","unique_ratio",
+    "words_length_avg","cells_length_avg","cells_null",
+    "numeric_min","numeric_max","Q1","Q2","Q3",
+    "most_freq_value_ratio","max_digits","max_decimals",
+    "max_len","min_len","avg_len",
+    "row_num",
+    "words_unique","words_alphabet","words_numeric","words_punctuation","words_miscellaneous",
+    "cells_unique","cells_alphabet","cells_numeric","cells_punctuation","cells_miscellaneous",
+    "characters_unique","characters_alphabet","characters_numeric","characters_punctuation","characters_miscellaneous",
+]
+
+CATEG_COLS_ALL = [
+    "basic_data_type","semantic_domain","dominant_pattern","first_digit",
+]
+
+FEATURE_GROUPS = {
+    "stats_basic": ["row_num","null_ratio","distinct_num","unique_ratio"],
+    "distribution": ["histogram","histogram_freq","equi_width_bin","equi_depth_bin",
+                     "numeric_min","numeric_max","Q1","Q2","Q3","most_freq_value_ratio","first_digit","max_decimals"],
+    "type_info": ["basic_data_type"],
+    "pattern_info": ["dominant_pattern","max_digits","max_decimals","avg_len","min_len","max_len"],
+    "semantic_domain": ["semantic_domain"],
+    "keywords": "DYNAMIC",  # vectorize_top_keywords
+    "character_info": ["characters_unique","characters_alphabet","characters_numeric",
+                       "characters_punctuation","characters_miscellaneous"],
+    "words_info": ["words_unique","words_alphabet","words_numeric","words_punctuation",
+                   "words_miscellaneous","words_length_avg"],
+    "cell_info": ["cells_unique","cells_alphabet","cells_numeric","cells_punctuation",
+                  "cells_miscellaneous","cells_length_avg"],
+}
+
+_HIST_FIELDS = {"histogram", "histogram_freq", "equi_width_bin", "equi_depth_bin"}
+
+def _vectorize_hist_block(series, max_bins=20, prefix="hist"):
+    """
+    Accept list/tuple/np.array of numbers OR dict {bin:count}.
+    Output fixed-length [prefix[0]..prefix[max_bins-1]] per row.
+    """
+    n = len(series)
+    out = np.zeros((n, max_bins), dtype=float)
+    for i, v in enumerate(series):
+        if v is None:
+            continue
+        if isinstance(v, dict):
+            items = sorted(v.items(), key=lambda kv: kv[0])
+            vals = [float(kv[1]) for kv in items][:max_bins]
+        elif isinstance(v, (list, tuple, np.ndarray)):
+            vals = [float(x) for x in v][:max_bins]
+        else:
+            try:
+                vals = [float(x) for x in re.split(r"[^\d\.\-eE]+", str(v)) if x][:max_bins]
+            except:
+                vals = []
+        out[i, :len(vals)] = vals
+    cols = [f"{prefix}[{j}]" for j in range(max_bins)]
+    return pd.DataFrame(out, columns=cols)
+
+def make_feature_blocks_from_profiles_with_constants(
+    column_profiles: list[dict],
+    NUMERIC_COLS_ALL: list[str],
+    CATEG_COLS_ALL: list[str],
+    FEATURE_GROUPS: dict,
+    keyword_field: str = "top_keywords",
+    top_k_keywords: int = 20,
+    max_bins: int = 20,
+    max_categories_per_cat_col: int = 50,
+):
+    """
+    Build numeric (StandardScaler), categorical (OHE), keywords (MaxAbs), and
+    flattened histogram-like blocks (MaxAbs). Returns builders to assemble by groups.
+    """
+    df = pd.DataFrame([dict(cp) for cp in column_profiles])
+    if "unique_id" not in df.columns:
+        df["unique_id"] = [cp.get("unique_id", cp.get("column_name")) for cp in column_profiles]
+    if "dataset_name" not in df.columns:
+        df["dataset_name"] = [cp.get("dataset_name") for cp in column_profiles]
+    if "column_name" not in df.columns:
+        df["column_name"] = [cp.get("column_name") for cp in column_profiles]
+    row_ids = df["unique_id"].tolist()
+
+    # numeric
+    num_cols = [c for c in NUMERIC_COLS_ALL if c in df.columns]
+    if num_cols:
+        df_num = df[num_cols].apply(pd.to_numeric, errors="coerce").fillna(0.0).astype("float64")
+        X_num = StandardScaler().fit_transform(df_num.values)
+    else:
+        X_num = np.zeros((len(df), 0))
+
+    # categorical bases (cap very high cardinality)
+    cat_bases = [c for c in CATEG_COLS_ALL if c in df.columns]
+    if cat_bases:
+        df_cat_raw = df[cat_bases].copy()
+        for c in list(df_cat_raw.columns):
+            if df_cat_raw[c].nunique(dropna=True) > max_categories_per_cat_col:
+                df_cat_raw.drop(columns=[c], inplace=True)
+        cat_bases = list(df_cat_raw.columns)
+    if cat_bases:
+        df_cat = df_cat_raw.fillna("").astype(str)
+        try:
+            ohe = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+        except TypeError:
+            ohe = OneHotEncoder(handle_unknown="ignore", sparse=False)
+        X_cat = ohe.fit_transform(df_cat) if len(cat_bases) else np.zeros((len(df), 0))
+        ohe_names = list(ohe.get_feature_names_out(cat_bases)) if len(cat_bases) else []
+    else:
+        X_cat = np.zeros((len(df), 0)); ohe_names = []
+
+    # keywords
+    series_kw = df[keyword_field] if keyword_field in df.columns else pd.Series([None]*len(df))
+    df_kw = vectorize_top_keywords(series_kw, top_k=top_k_keywords)
+    if not df_kw.empty:
+        X_kw = MaxAbsScaler().fit_transform(df_kw.values)
+        kw_cols = df_kw.columns.tolist()
+    else:
+        X_kw = np.zeros((len(df), 0)); kw_cols = []
+
+    # distribution blocks
+    hist_blocks = {}
+    for hname in (_HIST_FIELDS & set(df.columns)):
+        df_h = _vectorize_hist_block(df[hname], max_bins=max_bins, prefix=hname)
+        if not df_h.empty:
+            X_h = MaxAbsScaler().fit_transform(df_h.values)
+            hist_blocks[hname] = (X_h, df_h.columns.tolist())
+
+    def build_by_groups(selected_groups: list[str]):
+        mats, names = [], []
+        for g in selected_groups:
+            items = FEATURE_GROUPS.get(g, [])
+            if items == "DYNAMIC" and g == "keywords":
+                if X_kw.shape[1] > 0:
+                    mats.append(X_kw); names += kw_cols
+                continue
+            use_num, use_cat = [], []
+            for token in items:
+                if token in _HIST_FIELDS:
+                    if token in hist_blocks:
+                        X_h, cols_h = hist_blocks[token]
+                        mats.append(X_h); names += cols_h
+                    continue
+                if token in CATEG_COLS_ALL: use_cat.append(token)
+                elif token in NUMERIC_COLS_ALL: use_num.append(token)
+            if use_num:
+                idx = [i for i,c in enumerate(num_cols) if c in use_num]
+                if idx: mats.append(X_num[:, idx]); names += [num_cols[i] for i in idx]
+            if use_cat and ohe_names:
+                mask = np.array([any(n.startswith(base+"_") for base in use_cat) for n in ohe_names])
+                if mask.any():
+                    mats.append(X_cat[:, mask]); names += list(np.array(ohe_names)[mask])
+        X = np.hstack(mats) if mats else np.zeros((len(df), 0))
+        return X, names
+
+    def build_by_columns(selected_columns: list[str]):
+        sel = list(selected_columns)
+        mats, names = [], []
+        # numeric
+        # (we could add exact-name slices similar to above if needed)
+        return np.zeros((len(df),0)), []
+
+    return {
+        "build_by_groups": build_by_groups,
+        "build_by_columns": build_by_columns,
+        "meta": {
+            "num_cols": num_cols,
+            "ohe_feature_names": ohe_names,
+            "kw_cols": kw_cols,
+            "hist_blocks": {k:v[1] for k,v in hist_blocks.items()},
+            "row_ids": row_ids,
+        }
+    }
+per_seed_thr_rows = []
+def find_similar_columns_from_dictionary_rules_mixed(
+    column_profiles,
+    groups=None,                # FEATURE_GROUPS to include
+    metric="cosine",            # "cosine" | "euclidean"
+    threshold: float | None = 0.85,  # cosine>=thr or euclidean<=thr; <=0 disables
+    top_k: int = 0,             # if >0, keep only top-k per seed
+    centroid_key="column_name",
+    id_key="unique_id",
+    keyword_field="top_keywords",
+    top_k_keywords=20,
+    max_bins=20,
+    save_csv_path: Path | None = None,
+):
+    """
+    Use seeds from dictionary rules (SIMPLE_RULE_PROFILES) and pull most similar columns
+    using mixed features (numeric+categorical+distribution+keywords).
+    Returns (clusters, scores_df, X_used).
+    """
+
+    seeds = collect_seeds_from_dictionary_rules(column_profiles, centroid_key=centroid_key)
+    if not seeds:
+        print("[RULE_SIMILARITY] No seeds found in dictionary rules that match the loaded profiles.")
+        return {}, pd.DataFrame(), None
+
+    # default: include everything
+    if groups is None:
+        groups = [
+            "stats_basic","distribution","type_info","pattern_info",
+            "semantic_domain","character_info","words_info","cell_info","keywords"
+        ]
+
+    blocks = make_feature_blocks_from_profiles_with_constants(
+        column_profiles,
+        NUMERIC_COLS_ALL=NUMERIC_COLS_ALL,
+        CATEG_COLS_ALL=CATEG_COLS_ALL,
+        FEATURE_GROUPS=FEATURE_GROUPS,
+        keyword_field=keyword_field,
+        top_k_keywords=top_k_keywords,
+        max_bins=max_bins,
+    )
+    X_all, _ = blocks["build_by_groups"](groups)
+    Xp = normalize(X_all) if metric == "cosine" else X_all
+
+    uid_list = [cp[id_key] for cp in column_profiles]
+    name_to_idx = {cp.get(centroid_key): i for i, cp in enumerate(column_profiles)}
+
+    clusters, rows, covered, cid = {}, [], set(), 0
+    for seed in seeds:
+        si = name_to_idx.get(seed)
+        if si is None:
+            print(f"[RULE_SIMILARITY] Seed '{seed}' not found; skipping.")
+            continue
+
+        # inside the for-seed loop, after you compute scores (cosine) or dists (euclidean)
+
+        auto_thr = (threshold == "auto") or (threshold is None)  # choose your trigger
+        # BEFORE the seed loop (optional, for logging)
+        per_seed_thr_rows = []
+
+        # INSIDE the for-seed loop, after you compute Xp and si
+        thr_used = None  # will record the fixed threshold we actually used
+
+        if metric == "cosine":
+            svec = Xp[si]
+            scores = Xp @ svec  # cosine similarity
+            order = np.argsort(-scores)  # high → low
+            if threshold is not None and float(threshold) > 0:
+                thr_used = float(threshold)
+                keep = np.where(scores >= thr_used)[0].tolist()
+            else:
+                keep = list(range(len(scores)))  # no threshold: keep all, apply top_k below
+        else:
+            diffs = Xp - Xp[si]
+            dists = np.linalg.norm(diffs, axis=1)
+            scores = -dists
+            order = np.argsort(dists)  # low → high
+            if threshold is not None and float(threshold) > 0:
+                thr_used = float(threshold)
+                keep = np.where(dists <= thr_used)[0].tolist()
+            else:
+                keep = list(range(len(dists)))
+
+        # apply top-k cap after thresholding
+        if top_k and top_k > 0:
+            keep = [i for i in order if i in keep][:top_k]
+
+        # always include the seed itself
+        if si not in keep:
+            keep = [si] + keep
+
+        # (optional) log per-seed fixed threshold
+        per_seed_thr_rows.append({
+            "seed": seed,
+            "metric": metric,
+            "threshold_mode": "fixed",
+            "threshold_value": thr_used,
+            "kept_count": len(keep),
+        })
+
+        # apply top-k if requested (after thresholding)
+        if top_k and top_k > 0:
+            keep = [i for i in order if i in keep][:top_k]
+
+        # always keep the seed itself
+        if si not in keep:
+            keep = [si] + keep
+
+        members = [uid_list[i] for i in keep]
+        clusters[cid] = members
+        covered.update(members)
+
+        for rank, i in enumerate(keep, 1):
+            row = {
+                "seed": seed,
+                "unique_id": uid_list[i],
+                "dataset_name": column_profiles[i].get("dataset_name"),
+                "column_name": column_profiles[i].get("column_name"),
+                "rank": rank,
+                "cosine_similarity" if metric=="cosine" else "euclidean_distance": float(scores[i] if metric=="cosine" else -scores[i]),
+            }
+            rows.append(row)
+        cid += 1
+
+    if save_csv_path is not None and per_seed_thr_rows:
+        thr_path = save_csv_path.parent / "seed_thresholds.csv"
+        pd.DataFrame(per_seed_thr_rows).to_csv(thr_path, index=False)
+        print(f"[RULE_SIMILARITY] Per-seed thresholds saved to: {thr_path.resolve()}")
+    leftover = [u for u in uid_list if u not in covered]
+    if leftover:
+        clusters[-1] = leftover
+
+    df_scores = pd.DataFrame(rows).sort_values(["seed","rank"])
+    if save_csv_path is not None:
+        save_csv_path.parent.mkdir(parents=True, exist_ok=True)
+        df_scores.to_csv(save_csv_path, index=False)
+        print(f"[RULE_SIMILARITY] Scores saved to: {save_csv_path.resolve()}")
+
+    return clusters, df_scores, Xp
+
+def _tokenize(s: str):
+    # simple alnum tokenization; tweak if you have better tokens already
+    return [t for t in re.split(r"[^0-9A-Za-z_]+", s.lower()) if t]
+
+def vectorize_top_keywords(series, top_k=10):
+    """
+    Accepts items that are:
+      - dict token->weight
+      - list/tuple of tokens
+      - string (will be tokenized)
+      - None/empty
+    Builds a DataFrame with columns 'kw::<token>' for the top_k tokens.
+    """
+    n = len(series)
+    rows = [None] * n
+    totals = Counter()
+
+    # First pass: normalize to dicts
+    for i, v in enumerate(series):
+        d = {}
+        if isinstance(v, dict):
+            for k, w in v.items():
+                if k is None: continue
+                try:
+                    w = float(w)
+                except Exception:
+                    w = 1.0
+                if w != 0:
+                    d[str(k).lower()] = d.get(str(k).lower(), 0.0) + w
+        elif isinstance(v, (list, tuple)):
+            for k in v:
+                if k is None: continue
+                k2 = str(k).lower()
+                d[k2] = d.get(k2, 0.0) + 1.0
+        elif isinstance(v, str) and v.strip():
+            for k in _tokenize(v):
+                d[k] = d.get(k, 0.0) + 1.0
+        # accumulate totals
+        for k, w in d.items():
+            totals[k] += w
+        rows[i] = d
+
+    if not totals:
+        return pd.DataFrame(index=range(n))
+
+    vocab = [k for k, _ in totals.most_common(top_k)]
+    cols = [f"kw::{k}" for k in vocab]
+    data = np.zeros((n, len(vocab)), dtype=float)
+
+    key_to_idx = {k: j for j, k in enumerate(vocab)}
+    for i, d in enumerate(rows):
+        for k, w in (d or {}).items():
+            j = key_to_idx.get(k)
+            if j is not None:
+                data[i, j] = float(w)
+
+    return pd.DataFrame(data, columns=cols)
+
 
 def _to_float_safe(v):
     # Convert v to a finite float; coerce None/NaN/invalid to 0.0
@@ -615,6 +1211,44 @@ def main(
     else:
         elbow_dir = results_path / "_misc"
 
+    elbow_dir.mkdir(parents=True, exist_ok=True)
+
+    # --- TOTAL RUNTIME START ---
+    run_start = time.perf_counter()
+    start_dt = datetime.now()
+
+    # unified base output dir for summaries
+    if mode == "single" and dataset_group and dataset_name:
+        base_dir = results_path / dataset_group / dataset_name
+    elif mode == "multi" and dataset_group:
+        base_dir = results_path / dataset_group / "_multi"
+    else:
+        base_dir = results_path / "_misc"
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    elbow_dir.mkdir(parents=True, exist_ok=True)
+
+    # --- TOTAL RUNTIME START + per-method sink ---
+    run_start = time.perf_counter()
+    start_dt = datetime.now()
+
+    # unified base output dir (you already have this logic; keep it)
+    if mode == "single" and dataset_group and dataset_name:
+        base_dir = results_path / dataset_group / dataset_name
+    elif mode == "multi" and dataset_group:
+        base_dir = results_path / dataset_group / "_multi"
+    else:
+        base_dir = results_path / "_misc"
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    # per-method timings collector
+    timings = []
+
+    # placeholders for plots if some methods are skipped
+    Xp_db = None
+    Xp_km = None
+    Xp_seeded = None
+
     # -------------------
     # Discover profiles
     # -------------------
@@ -691,94 +1325,113 @@ def main(
     comparison: dict[str, dict[int, list[str]]] = {}
     config_base = f"Eps:{eps_value} | MinSamples:{min_samples} | K:{kmeans_k}"
     elbow_dir.mkdir(parents=True, exist_ok=True)
+    Xp_db = None
+    Xp_km = None
+    Xp_seeded = None
     print(f"[AUTO-K] Combined plot: {(elbow_dir / 'combo.png').resolve()}")
 
+    # --- Optional: sweep thresholds just for RULE_SIMILARITY ---
+    if args.rule_similarity and args.sweep_rule_thr:
+        # If you only want to run the sweep and skip the rest, early-return after this call.
+        sweep_rule_similarity_thresholds(column_profiles, rules, args, base_dir)
+        # return  # uncomment to skip other methods entirely
+
+
     # 1) DBSCAN
-    start = time.perf_counter()
-    clusters_dbscan, Xp_db = run_dbscan(
-        column_profiles, eps=eps_value, min_samples=min_samples, metric=args.metric
-    )
-    elapsed = time.perf_counter() - start
-    print(f"[TIME] DBSCAN clustering took {elapsed:.3f} seconds (metric={args.metric})")
-    comparison["DBSCAN"] = clusters_dbscan
+    if not args.only_rule_similarity:
+        with timed_section(f"DBSCAN(metric={args.metric}, eps={eps_value}, min_samples={min_samples})", timings):
+            clusters_dbscan, Xp_db = run_dbscan(
+                column_profiles, eps=eps_value, min_samples=min_samples, metric=args.metric
+            )
+            comparison["DBSCAN"] = clusters_dbscan
 
     # 2) Plain K-Means (optionally auto-select k via elbow/silhouette)
-    start = time.perf_counter()
-    if args.auto_k:
-        try:
-            diag = compute_elbow_and_silhouette(
-                column_profiles, k_min=args.k_min, k_max=args.k_max, metric=args.metric
+    if not args.only_rule_similarity:
+        with timed_section(f"KMEANS(metric={args.metric}, auto_k={args.auto_k})", timings):
+            if args.auto_k:
+                try:
+                    diag = compute_elbow_and_silhouette(
+                        column_profiles, k_min=args.k_min, k_max=args.k_max, metric=args.metric
+                    )
+                    kmeans_k = pick_k_auto(diag, strategy=args.auto_k_strategy)
+                    if args.elbow_plot:
+                        _, _ = find_best_k_by_elbow(
+                            column_profiles,
+                            k_min=args.k_min, k_max=args.k_max,
+                            metric=args.metric,
+                            results_dir=elbow_dir, plot=True, plot_filename="elbow.png"
+                        )
+                    if args.silhouette_plot:
+                        save_silhouette_plot(diag, elbow_dir / "silhouette.png")
+                    if args.combo_plot:
+                        save_elbow_silhouette_combo(diag, elbow_dir / "combo.png", chosen_k=kmeans_k)
+                except Exception as e:
+                    print(f"[AUTO-K] Failed to auto-select k ({e}); falling back to k={kmeans_k}")
+
+            clusters_kmeans, Xp_km = run_plain_kmeans(
+                column_profiles, n_clusters=kmeans_k, metric=args.metric
             )
-            print(f"[AUTO-K] Tested ks={diag['ks']}")
-            print(f"[AUTO-K] Inertias={np.round(diag['inertias'], 2).tolist()}")
-            print(
-                f"[AUTO-K] Silhouettes={[None if (v is None or np.isnan(v)) else round(v, 3) for v in diag['silhouettes']]}")
-
-            kmeans_k = pick_k_auto(diag, strategy=args.auto_k_strategy)
-            print(f"[AUTO-K] Selected k={kmeans_k} (strategy={args.auto_k_strategy}, metric={args.metric})")
-
-            if args.elbow_plot:
-                _, _ = find_best_k_by_elbow(
-                    column_profiles,
-                    k_min=args.k_min, k_max=args.k_max,
-                    metric=args.metric,
-                    results_dir=elbow_dir, plot=True, plot_filename="elbow.png"
-                )
-                print(f"[AUTO-K] Elbow plot: {(elbow_dir / 'elbow.png').resolve()}")
-            if args.silhouette_plot:
-                sil_path = elbow_dir / "silhouette.png"
-                save_silhouette_plot(diag, sil_path)
-                print(f"[AUTO-K] Silhouette plot: {sil_path.resolve()}")
-            if args.combo_plot:
-                combo_path = elbow_dir / "combo.png"
-                save_elbow_silhouette_combo(diag, combo_path, chosen_k=kmeans_k)
-                print(f"[AUTO-K] Combined plot: {combo_path.resolve()}")
-
-        except Exception as e:
-            print(f"[AUTO-K] Failed to auto-select k ({e}); falling back to k={kmeans_k}")
-
-    clusters_kmeans, Xp_km = run_plain_kmeans(
-        column_profiles, n_clusters=kmeans_k, metric=args.metric
-    )
-    elapsed = time.perf_counter() - start
-    print(f"[TIME] K-Means (k={kmeans_k}) clustering took {elapsed:.3f} seconds (metric={args.metric})")
-    comparison[f"KMEANS_k={kmeans_k}"] = clusters_kmeans
+            comparison[f"KMEANS_k={kmeans_k}"] = clusters_kmeans
 
     # 3) Seeded K-Means
-    seeds: list[str] = []
-    if seeds_csv:
-        seeds.extend([s.strip() for s in seeds_csv.split(",") if s.strip()])
-    if seeds_file:
-        with open(seeds_file, "r") as sf:
-            seeds.extend([ln.strip() for ln in sf if ln.strip()])
-    if not seeds:
-        seeds = collect_seeds_from_dictionary_rules(column_profiles, centroid_key="column_name")
-        if seeds:
-            print(f"[KMEANS_SEEDED] Using seeds from dictionary rules: {seeds}")
-        else:
-            print("[KMEANS_SEEDED] No seeds provided and none inferred; skipping seeded K-Means.")
-
     Xp_seeded = None
-    if seeds:
-        feature_keys = get_numeric_feature_keys(column_profiles)
-        start = time.perf_counter()
-        clusters_seeded = cluster_columns_kmeans_by_samples(
-            column_profiles,
-            seeds,
-            feature_keys=feature_keys,
-            id_key="unique_id",
-            centroid_key="column_name",
-            similarity=similarity,  # "cosine" or "euclidean" from args
-            membership_threshold=None if (threshold is None or threshold <= 0) else float(threshold),
-            max_iter=kmeans_max_iter,
-        )
-        elapsed = time.perf_counter() - start
-        print(f"[TIME] Seeded K-Means clustering took {elapsed:.3f} seconds (similarity={similarity})")
-        comparison["KMEANS_SEEDED"] = clusters_seeded
+    if not args.only_rule_similarity:
+        with timed_section(f"KMEANS_SEEDED(similarity={similarity}, thr={threshold})", timings):
+            seeds: list[str] = []
+            if seeds_csv:
+                seeds.extend([s.strip() for s in seeds_csv.split(",") if s.strip()])
+            if seeds_file:
+                with open(seeds_file, "r") as sf:
+                    seeds.extend([ln.strip() for ln in sf if ln.strip()])
+            if not seeds:
+                seeds = collect_seeds_from_dictionary_rules(column_profiles, centroid_key="column_name")
+                if seeds:
+                    print(f"[KMEANS_SEEDED] Using seeds from dictionary rules: {seeds}")
+                else:
+                    print("[KMEANS_SEEDED] No seeds provided and none inferred; skipping seeded K-Means.")
 
-        # Build X preprocessed to match seeded similarity for plotting
-        X = _build_feature_matrix(column_profiles, feature_keys)
-        Xp_seeded = _preprocess_for_metric(X, "cosine" if similarity == "cosine" else "euclidean")
+            if seeds:
+                feature_keys = get_numeric_feature_keys(column_profiles)
+                clusters_seeded = cluster_columns_kmeans_by_samples(
+                    column_profiles,
+                    seeds,
+                    feature_keys=feature_keys,
+                    id_key="unique_id",
+                    centroid_key="column_name",
+                    similarity=similarity,
+                    membership_threshold=None if (threshold is None or threshold <= 0) else float(threshold),
+                    max_iter=kmeans_max_iter,
+                )
+                comparison["KMEANS_SEEDED"] = clusters_seeded
+
+                # for plotting
+                X = _build_feature_matrix(column_profiles, feature_keys)
+                Xp_seeded = _preprocess_for_metric(X, "cosine" if similarity == "cosine" else "euclidean")
+
+    # 4) RULE_SIMILARITY (dictionary seeds + feature similarity)
+    Xp_rule = None
+    if args.rule_similarity:
+        with timed_section(
+                f"RULE_SIMILARITY(metric={args.metric}, auto_thr={getattr(args, 'rule_auto_thr', False)}, thr={getattr(args, 'rule_thr', None)})",
+                timings):
+            groups = [g.strip() for g in args.rule_groups.split(",") if g.strip()] if args.rule_groups else None
+            out_scores = base_dir / "RULE_SIMILARITY" / "seed_similarity_scores.csv"
+
+            clusters_rule, df_scores_rule, Xp_rule = find_similar_columns_from_dictionary_rules_mixed(
+                column_profiles,
+                groups=groups,
+                metric=args.metric,
+                threshold=("auto" if getattr(args, "rule_auto_thr", False) else args.rule_thr),
+                top_k=args.rule_topk,
+                centroid_key="column_name",
+                id_key="unique_id",
+                keyword_field=args.rule_keyword_field,
+                top_k_keywords=args.rule_keywords_k,
+                max_bins=args.rule_max_bins,
+                save_csv_path=out_scores,
+            )
+            if clusters_rule:
+                comparison["RULE_SIMILARITY"] = clusters_rule
 
     # -------------------------------
     # Compare + Evaluate each method
@@ -809,6 +1462,8 @@ def main(
                 Xp = Xp_km
             elif method_label == "KMEANS_SEEDED":
                 Xp = Xp_seeded
+            elif method_label == "RULE_SIMILARITY":
+                Xp = Xp_rule
             else:
                 Xp = None
 
@@ -858,6 +1513,46 @@ def main(
             print(f"Total GT error cells: {sum(len(v) for v in actual_errors_by_column.values())}")
         except FileNotFoundError:
             pass
+    # --- TOTAL RUNTIME END + write logs ---
+    end_dt = datetime.now()
+    total_sec = time.perf_counter() - run_start
+    print(f"[TIME] TOTAL runtime: {total_sec:.3f} seconds ({total_sec / 60:.2f} min)")
+
+    # attach total to summary JSON (+ per-method timings)
+    try:
+        run_info = {
+            "started_at": start_dt.isoformat(),
+            "finished_at": end_dt.isoformat(),
+            "duration_seconds": round(total_sec, 3),
+            "mode": mode,
+            "dataset_group": dataset_group,
+            "dataset_name": dataset_name,
+            "metric": getattr(args, "metric", None),
+            "auto_k": getattr(args, "auto_k", None),
+            "only_rule_similarity": getattr(args, "only_rule_similarity", None),
+            "methods": timings,  # <-- per-method entries
+        }
+        # write JSON
+        (base_dir / "runtime_summary.json").write_text(json.dumps(run_info, indent=2))
+
+        # write CSV (one row per method timing)
+        if len(timings):
+            df_t = pd.DataFrame(timings)
+            ts_tag = end_dt.strftime("%Y%m%d_%H%M%S")
+            csv_path = base_dir / f"runtime_methods_{ts_tag}.csv"
+            df_t.to_csv(csv_path, index=False)
+            print(f"[SAVE] Method runtimes: {csv_path.resolve()}")
+
+        # also a quick txt
+        with open(base_dir / "runtime_summary.txt", "w") as f:
+            f.write(
+                f"Started:  {start_dt}\n"
+                f"Finished: {end_dt}\n"
+                f"Duration: {total_sec:.3f} s ({total_sec / 60:.2f} min)\n"
+            )
+        print(f"[SAVE] Runtime summary: {(base_dir / 'runtime_summary.json').resolve()}")
+    except Exception as e:
+        print(f"[WARN] Failed to save runtime summary: {e}")
 
 
 if __name__ == "__main__":
@@ -905,8 +1600,31 @@ if __name__ == "__main__":
                         help="Distance/similarity used across methods (K-Means uses L2-normalized features to approximate cosine)")
     parser.add_argument("--plot_clusters", action="store_true",
                         help="Save a 2D scatter plot of clusters for each method (clusters_2d.png)")
+    # Rule-similarity method controls
+    parser.add_argument("--rule_similarity", action="store_true",
+                        help="Run dictionary-rule seed similarity method (RULE_SIMILARITY)")
+    parser.add_argument("--rule_thr", type=float, default=0.85,
+                        help="Threshold: cosine>=thr or euclidean<=thr; <=0 disables")
+    parser.add_argument("--rule_topk", type=int, default=0,
+                        help="If >0, keep only top-K most similar per seed")
+    parser.add_argument("--rule_groups", type=str, default="",
+                        help="Comma-separated FEATURE_GROUPS to use (blank = default full set)")
+    parser.add_argument("--rule_keyword_field", type=str, default="top_keywords")
+    parser.add_argument("--rule_keywords_k", type=int, default=20)
+    parser.add_argument("--rule_max_bins", type=int, default=20)
+    # Run only the dictionary-rule similarity method
+    parser.add_argument("--only_rule_similarity", action="store_true",
+                        help="Skip DBSCAN / K-Means / Seeded K-Means and run only RULE_SIMILARITY")
+    parser.add_argument("--rule_auto_thr", action="store_true",
+                        help="Use per-seed elbow threshold instead of a global --rule_thr")
+    # Sweep thresholds for RULE_SIMILARITY; comma-separated; may include "auto"
+    parser.add_argument("--sweep_rule_thr", type=str, default="",
+                        help='Thresholds to test, e.g. "0.75,0.80,0.85,0.90,auto"')
+    parser.add_argument("--sweep_plot", action="store_true",
+                        help="Save a line plot of F1 vs threshold")
 
     args = parser.parse_args()
+
 
     main(
         mode=args.mode,
@@ -959,3 +1677,24 @@ if __name__ == "__main__":
 #   --auto_k --k_min 2 --k_max 15 --auto_k_strategy both --combo_plot
 #
 
+# python3 main.py \
+#   --mode multi --dataset_group Quintet \
+#   --metric cosine \
+#   --auto_k --k_min 2 --k_max 66 --auto_k_strategy both --combo_plot \
+#   --plot_clusters
+
+
+
+# python3 main.py \
+#   --mode multi --dataset_group Quintet \
+#   --metric cosine \
+#   --rule_similarity --only_rule_similarity \
+#   --rule_auto_thr --plot_clusters
+
+
+# python3 main.py \
+#   --mode multi --dataset_group Quintet \
+#   --metric cosine \
+#   --rule_similarity --only_rule_similarity \
+#   --sweep_rule_thr "0.60,0.75,0.80,0.85,0.90,auto" \
+#   --sweep_plot

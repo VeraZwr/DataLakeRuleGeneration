@@ -36,8 +36,8 @@ SIMPLE_RULE_PROFILES = {
         "conditions": {"null_ratio": 0},
         "features": ["null_ratio"],
         "description": "Contains null values",
-        "sample_column": ["rayyan::article_jvolumn", "rayyan_article_jissue","305b_Assessed_Lake_2018::aquatic_life_attainment_code", "305b_Assessed_Lake_2018::objectid(long)"] # "flights::sched_dep_time","flights::act_dep_time",
-    },
+        "sample_column": ["rayyan::article_jvolumn", "rayyan_article_jissue", "305b_Assessed_Lake_2018::aquatic_life_attainment_code", "305b_Assessed_Lake_2018::objectid(long)"] # "flights::sched_dep_time","flights::act_dep_time",
+    }, #",,
     "has_low_cardinality": {
         "conditions": {"unique_ratio": lambda x: x < 0.1},
         "features": ["unique_ratio"],
@@ -112,7 +112,7 @@ SIMPLE_RULE_PROFILES = {
         "description": "4-digit number."
     },
     "matches_regex_relasedate": {
-            "sample_column": ["movies_1::year"],
+            "sample_column": ["movies_1::relase_date"],
             "features": ["dominant_pattern"],
             "conditions": {
                 "dominant_pattern": r"^(?:\d{1,2}\s)?(January|February|March|April|May|June|July|August|September|October|November|December)\s\d{4}\s\([A-Z]{3,}\)$"
@@ -121,21 +121,21 @@ SIMPLE_RULE_PROFILES = {
             "description": "(Date) Month Year (Country)."
         },
     "matches_regex_timeduration": {
-                "sample_column": ["rayyan::journal_issn"],
+                "sample_column": ["rayyan::journal_issn"], #rayyan::journal_issn
                 "features": ["dominant_pattern"],
                 "conditions": {
                     "dominant_pattern": r"^(?:\d{4}-\d{4})?$"
                 },
                 "description": "Invalid journal issn."
             },
-"matches_regex_timeduration": {
-                "sample_column": ["movies_1::duration"],
-                "features": ["dominant_pattern"],
-                "conditions": {
-                    "dominant_pattern": r"^\d+\s?min$"
+    "matches_regex_timeduration": {
+                    "sample_column": ["movies_1::duration"],
+                    "features": ["dominant_pattern"],
+                    "conditions": {
+                        "dominant_pattern": r"^\d+\s?min$"
+                    },
+                    "description": "Invalid format of duration."
                 },
-                "description": "Invalid format of duration."
-            },
 
 
 #semantic domain check
@@ -160,15 +160,15 @@ SIMPLE_RULE_PROFILES = {
     "is_zip": {
                     "conditions": {"semantic_domain": "region"},
                     "features": ["semantic_domain"],
-                    "description": "Invalid county name",
-                    "sample_column": ["hospital::county"]
+                    "description": "Invalid zip name",
+                    "sample_column": ["hospital::zip"]
                 },
 
     "is_county": {
         "conditions": {"semantic_domain": "county"},
         "features": ["semantic_domain"],
-        "description": "Invalid zip code",
-        "sample_column": ["hospital::zip"]
+        "description": "Invalid county code",
+        "sample_column": ["hospital::county"]
     },
 
     "is_rank": {
@@ -185,7 +185,7 @@ SIMPLE_RULE_PROFILES = {
         },
         "features": ["numeric_min_value", "numeric_max_value"],
         "description": "Values within expected range",
-        "sample_column": [""] # movies_1  movies_1::rating_value
+        "sample_column": ["movies_1::rating_value"] # movies_1
     },
     "quartile_thresholds": {
         "conditions": {
@@ -230,8 +230,8 @@ SIMPLE_RULE_PROFILES = {
         },
         "features": ["spell_check"],
         "description": "Typ",
-        "sample_column": ["beers::name","beers::brewery_name","hospital::name","hospital::address_1", "hospital::type","hospital::owner", "hospital::condition", "hospital::measure_name","hospital::measure_code","hospital::sample","movies_1::name", "rayyan::article_title", "rayyan::author_list","305b_Assessed_Lake_2020::assessmentunitname","305b_Assessed_Lake_2020::locationdescription", "305b_Assessed_Lake_2020::watertypename", "305b_Assessed_Lake_2020::units","305b_Assessed_Lake_2020::useclassname","305b_Assessed_Lake_2020::ct_two_zero_two_zero_aql_use_usename","305b_Assessed_Lake_2020::ct_two_zero_two_zero_aql_use_attainment", "305b_Assessed_Lake_2020::ct_two_zero_two_zero_rec_use_usename","305b_Assessed_Lake_2020::ct_two_zero_two_zero_rec_use_attainment","305b_Assessed_Lake_2020::ct_two_zero_two_zero_fshcon_use_attainment","305b_Assessed_Lake_2020::ct_two_zero_two_zero_dw_use_usename", "305b_Assessed_Lake_2020::ct_two_zero_two_zero_dw_use_attainment","305b_Assessed_Lake_2020::impaired"]
-    #"305b_Assessed_Lake_2018::locationvalue", "305b_Assessed_Lake_2018::watertype", "305b_Assessed_Lake_2018::classname","305b_Assessed_Lake_2018::fish_consumption_attainment", "305b_Assessed_Lake_2018::drinking_water_attainment",
+        "sample_column": ["hospital::name","hospital::address_1", "hospital::type","hospital::owner", "hospital::condition", "hospital::measure_name","hospital::measure_code","hospital::sample","movies_1::name", "movies_1::description","rayyan::article_title", "rayyan::author_list","305b_Assessed_Lake_2020::assessmentunitname","305b_Assessed_Lake_2020::locationdescription", "305b_Assessed_Lake_2020::watertypename", "305b_Assessed_Lake_2020::units","305b_Assessed_Lake_2020::useclassname","305b_Assessed_Lake_2020::ct_two_zero_two_zero_aql_use_usename","305b_Assessed_Lake_2020::ct_two_zero_two_zero_aql_use_attainment", "305b_Assessed_Lake_2020::ct_two_zero_two_zero_rec_use_usename","305b_Assessed_Lake_2020::ct_two_zero_two_zero_rec_use_attainment","305b_Assessed_Lake_2020::ct_two_zero_two_zero_fshcon_use_attainment","305b_Assessed_Lake_2020::ct_two_zero_two_zero_dw_use_usename", "305b_Assessed_Lake_2020::ct_two_zero_two_zero_dw_use_attainment","305b_Assessed_Lake_2020::impaired"]
+    #"beers::name","beers::brewery_name","305b_Assessed_Lake_2018::locationvalue", "305b_Assessed_Lake_2018::watertype", "305b_Assessed_Lake_2018::classname","305b_Assessed_Lake_2018::fish_consumption_attainment", "305b_Assessed_Lake_2018::drinking_water_attainment",
     },
 
     #"benford_conformity": {
