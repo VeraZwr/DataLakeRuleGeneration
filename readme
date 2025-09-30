@@ -1,5 +1,7 @@
 Full technical report version of our paper can be found 
 
+More experiment results can be find in https://drive.google.com/drive/folders/1aTcXDdluQivml3QZfcFlC89fjPux3G_b?usp=sharing
+
 1. read file and generate data profile
     column_features: extract features
     reds.py: read the file and save the profile in results folder as .dictionary
@@ -12,8 +14,6 @@ Full technical report version of our paper can be found
     rule matching
     error scoring
     error clustering
-which scenario i can share the rules ->trees
-run matelda
 
 ######reds#####
 Content Features
